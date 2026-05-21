@@ -1,0 +1,15 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8180/realms/rfid-realm
+logging:
+  level:
+    com.pystelectronic.rfid: DEBUG
+    org.hibernate.SQL: DEBUG

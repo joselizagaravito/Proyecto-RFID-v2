@@ -1,0 +1,19 @@
+### 1. Health check
+GET http://localhost:8080/api/v1/health
+
+### 2. Crear traslado
+POST http://localhost:8080/api/v1/transfers
+Content-Type: application/json
+X-Idempotency-Key: TEST-001
+
+{
+  "originCode": "A001",
+  "destinationCode": "B003",
+  "scheduledDate": "2026-06-01T08:00:00-05:00",
+  "priority": "HIGH",
+  "carrierId": "TRN-014",
+  "remarks": "Primera prueba"
+}
+
+### 3. Listar traslados
+GET http://localhost:8080/api/v1/transfers?page=0&size=10

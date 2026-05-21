@@ -1,0 +1,12 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.client.servlet.OAuth2ClientAutoConfiguration
+  kafka:
+    bootstrap-servers: localhost:9099
+
+logging:
+  level:
+    com.pystelectronic.rfid: DEBUG
+    org.hibernate.SQL: DEBUG

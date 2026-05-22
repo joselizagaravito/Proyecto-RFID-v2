@@ -24,9 +24,9 @@
   <modules>
     <module>rfid-common</module>
     <module>transfer-api</module>
-    <!-- Próximos sprints:
     <module>read-tag-service</module>
     <module>validation-service</module>
+    <!-- Próximos sprints:
     <module>audit-service</module>
     -->
   </modules>

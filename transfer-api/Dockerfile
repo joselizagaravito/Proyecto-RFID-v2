@@ -7,9 +7,11 @@ WORKDIR /build
 COPY pom.xml .
 COPY rfid-common/pom.xml rfid-common/
 COPY transfer-api/pom.xml transfer-api/
+COPY read-tag-service/pom.xml read-tag-service/
+COPY validation-service/pom.xml validation-service/
 
 # Descargar dependencias (esta capa se cachea mientras no cambie el POM)
-RUN mvn dependency:go-offline -pl rfid-common,transfer-api -am -q
+RUN mvn dependency:go-offline -pl transfer-api -am -q
 
 # Copiar código fuente
 COPY rfid-common/src rfid-common/src

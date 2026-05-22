@@ -1,0 +1,65 @@
+spring:
+  application:
+    name: read-tag-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/rfid_transfers}
+    username: ${DB_USER:rfid_user}
+    password: ${DB_PASS:rfid_pass}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_schema: public
+    open-in-view: false
+
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      group-id: read-tag-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.pystelectronic.rfid.*"
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.pystelectronic.rfid.readtag.dto.RawReadMessage
+      max-poll-records: 100
+    listener:
+      ack-mode: MANUAL_IMMEDIATE
+      concurrency: 3
+
+server:
+  port: ${SERVER_PORT:8082}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+rfid:
+  kafka:
+    topics:
+      raw-reads: rfid.raw-reads
+
+logging:
+  level:
+    com.pystelectronic.rfid: DEBUG
+    org.springframework.kafka: INFO

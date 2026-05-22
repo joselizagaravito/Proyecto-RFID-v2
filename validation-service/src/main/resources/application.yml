@@ -1,0 +1,87 @@
+spring:
+  application:
+    name: validation-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/rfid_transfers}
+    username: ${DB_USER:rfid_user}
+    password: ${DB_PASS:rfid_pass}
+    hikari:
+      maximum-pool-size: 15
+      minimum-idle: 3
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    open-in-view: false
+
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 10
+          min-idle: 2
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      group-id: validation-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.pystelectronic.rfid.*"
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.pystelectronic.rfid.validation.dto.RawReadMessage
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+    listener:
+      ack-mode: MANUAL_IMMEDIATE
+      concurrency: 3
+
+server:
+  port: ${SERVER_PORT:8083}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+rfid:
+  kafka:
+    topics:
+      raw-reads: rfid.raw-reads
+      validated: rfid.validated
+      transfer-events: transfer.events
+      transfer-alerts: transfer.alerts
+  redis:
+    # TTL del portal_state en Redis (segundos) — 24 horas
+    portal-state-ttl: 86400
+    # Prefijo de clave para el estado del portal
+    portal-state-prefix: "portal:state:"
+    # Prefijo de clave para el estado del traslado activo
+    transfer-state-prefix: "transfer:active:"
+  snapshot:
+    # Intervalo de sincronización Redis → PostgreSQL (milisegundos)
+    interval-ms: 30000
+
+logging:
+  level:
+    com.pystelectronic.rfid: DEBUG
+    org.springframework.kafka: INFO

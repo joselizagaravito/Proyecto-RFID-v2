@@ -11,14 +11,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 
-/**
- * Consumidor Kafka del topic rfid.raw-reads para el validation-service.
- *
- * Nota: Tanto read-tag-service como validation-service consumen el mismo topic
- * pero con diferentes consumer group IDs, de modo que ambos reciben todos los mensajes.
- * - read-tag-service-group   → persiste la lectura cruda
- * - validation-service-group → valida el EPC y publica eventos
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -27,45 +19,43 @@ public class RawReadsValidationConsumer {
     private final EpcValidationService validationService;
 
     @KafkaListener(
-            topics = "${rfid.kafka.topics.raw-reads}",
-            groupId = "${spring.kafka.consumer.group-id}",
+            topics           = "${rfid.kafka.topics.raw-reads:rfid.raw-reads}",
+            groupId          = "${spring.kafka.consumer.group-id:validation-service-group}",
             containerFactory = "kafkaListenerContainerFactory"
     )
-    public void consume(
-            ConsumerRecord<String, RawReadMessage> record,
-            Acknowledgment ack) {
+    public void consume(ConsumerRecord<String, RawReadMessage> record,
+                        Acknowledgment ack) {
 
         RawReadMessage msg = record.value();
-        if (msg == null || msg.getEpc() == null) {
-            log.warn("Mensaje nulo o sin EPC recibido, descartando");
+
+        if (msg == null || msg.epc() == null) {
+            log.warn("Mensaje nulo o sin EPC en offset={} partition={} — ignorado",
+                    record.offset(), record.partition());
             ack.acknowledge();
             return;
         }
 
         try {
-            String deviceRole = inferDeviceRole(msg.getModuloRol());
-            Instant readAt = msg.getLastTime() != null ? msg.getLastTime() : Instant.now();
+            // portalId actúa como deviceId; rol inferido desde el portalId
+            String deviceRole = inferDeviceRole(msg.portalId());
+            Instant readAt    = msg.readAt() != null ? msg.readAt() : Instant.now();
 
-            validationService.validate(msg.getEpc(), msg.getModuloId(), deviceRole, readAt);
+            validationService.validate(msg.epc(), msg.portalId(), deviceRole, readAt);
             ack.acknowledge();
 
         } catch (Exception ex) {
-            log.error("Error validando EPC={}: {}", msg.getEpc(), ex.getMessage(), ex);
-            // No confirmamos el offset para reintentar.
-            // En producción considerar DLQ para evitar bloqueo.
+            log.error("[{}] Error validando EPC={}: {}",
+                    msg.correlationId(), msg.epc(), ex.getMessage(), ex);
+            ack.acknowledge(); // commit para no bloquear el consumer group
         }
     }
 
-    /**
-     * Infiere el rol del dispositivo a partir del moduloRol del hardware.
-     * Convención: "puerta1"/"puerta2" son portales, el resto son handhelds.
-     */
-    private String inferDeviceRole(String moduloRol) {
-        if (moduloRol == null) return "HANDHELD";
-        String lower = moduloRol.toLowerCase();
-        if (lower.contains("puerta") || lower.contains("gate")) {
-            return lower.contains("out") || lower.contains("salida") ? "GATE_OUT" : "GATE_IN";
-        }
+    private String inferDeviceRole(String portalId) {
+        if (portalId == null) return "HANDHELD";
+        String lower = portalId.toLowerCase();
+        if (lower.contains("out") || lower.contains("salida")) return "GATE_OUT";
+        if (lower.contains("in")  || lower.contains("entrada")) return "GATE_IN";
+        if (lower.contains("gate") || lower.contains("puerta")) return "GATE_IN";
         return "HANDHELD";
     }
 }

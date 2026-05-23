@@ -2,13 +2,12 @@ package com.pystelectronic.rfid.validation.entity;
 
 import jakarta.persistence.*;
 import lombok.Getter;
-
 import java.util.UUID;
 
 /**
  * Vista de solo lectura de la tabla lpn.
- * El validation-service NO escribe en esta tabla (responsabilidad del transfer-api).
- * Solo necesita consultar el EPC → LPN → Transfer para validar.
+ * El validation-service NO escribe en esta tabla.
+ * Solo consulta EPC → LPN → Transfer para validar.
  */
 @Entity
 @Table(name = "lpn")
@@ -27,12 +26,6 @@ public class LpnView {
 
     @Column(name = "status")
     private String status;
-
-    @Column(name = "sku_code")
-    private String skuCode;
-
-    @Column(name = "unit_quantity")
-    private Integer unitQuantity;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "pallet_id")

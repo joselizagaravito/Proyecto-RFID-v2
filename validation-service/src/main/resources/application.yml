@@ -2,86 +2,122 @@ spring:
   application:
     name: validation-service
 
-  datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/rfid_transfers}
-    username: ${DB_USER:rfid_user}
-    password: ${DB_PASS:rfid_pass}
-    hikari:
-      maximum-pool-size: 15
-      minimum-idle: 3
-
-  jpa:
-    hibernate:
-      ddl-auto: none
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-    open-in-view: false
-
   flyway:
     enabled: false
-    locations: classpath:db/migration
-    baseline-on-migrate: true
 
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
-      timeout: 2000ms
-      lettuce:
-        pool:
-          max-active: 10
-          min-idle: 2
-
+  # ── Kafka ──────────────────────────────────────────────────
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:kafka:9092}
     consumer:
       group-id: validation-service-group
       auto-offset-reset: earliest
+      enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "com.pystelectronic.rfid.*"
         spring.json.use.type.headers: false
         spring.json.value.default.type: com.pystelectronic.rfid.validation.dto.RawReadMessage
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-      properties:
-        spring.json.add.type.headers: false
-    listener:
-      ack-mode: MANUAL_IMMEDIATE
-      concurrency: 3
 
+  # ── Redis ──────────────────────────────────────────────────
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+
+  # ── PostgreSQL ─────────────────────────────────────────────
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://postgres:5432/rfid_transfers}
+    username: ${DB_USER:rfid_app}
+    password: ${DB_PASS:rfid_pass}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 20000
+      idle-timeout: 300000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+# ── Servidor ────────────────────────────────────────────────
 server:
   port: ${SERVER_PORT:8083}
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics,prometheus
-
+# ── Topics y Redis RFID ─────────────────────────────────────
 rfid:
   kafka:
+    topic:
+      raw-reads: rfid.raw-reads
+      validated: rfid.validated
     topics:
       raw-reads: rfid.raw-reads
       validated: rfid.validated
       transfer-events: transfer.events
       transfer-alerts: transfer.alerts
+    consumer:
+      group-id: validation-service-group
   redis:
-    # TTL del portal_state en Redis (segundos) — 24 horas
-    portal-state-ttl: 86400
-    # Prefijo de clave para el estado del portal
     portal-state-prefix: "portal:state:"
-    # Prefijo de clave para el estado del traslado activo
     transfer-state-prefix: "transfer:active:"
-  snapshot:
-    # Intervalo de sincronización Redis → PostgreSQL (milisegundos)
-    interval-ms: 30000
+    portal-state-ttl: 86400
+
+# ── Actuator ────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# ── Logging base ────────────────────────────────────────────
+logging:
+  level:
+    com.pystelectronic.rfid: INFO
+    org.apache.kafka: WARN
+    org.springframework.kafka: WARN
+
+---
+# ══════════════════════════════════════════════════════════
+# Perfil: dev  (máquina local Windows con Docker Compose)
+# ══════════════════════════════════════════════════════════
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/rfid_transfers
+    username: rfid_app
+    password: rfid_pass
+
+  data:
+    redis:
+      host: localhost
+
+  kafka:
+    bootstrap-servers: localhost:9092
 
 logging:
   level:
     com.pystelectronic.rfid: DEBUG
     org.springframework.kafka: INFO
+
+---
+# ══════════════════════════════════════════════════════════
+# Perfil: prod  (servidor 38.253.180.55 — todo en Docker)
+# Variables sensibles inyectadas desde .env.prod
+# ══════════════════════════════════════════════════════════
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+logging:
+  level:
+    com.pystelectronic.rfid: INFO
+    root: WARN

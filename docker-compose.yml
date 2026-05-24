@@ -262,3 +262,56 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+  # ── Webhook Mock (Sprint 5 T3) — Receptor simulado del WMS/ERP ──
+  webhook-mock:
+    build:
+      context: ./webhook-mock
+      dockerfile: Dockerfile
+    container_name: rfid-webhook-mock
+    restart: unless-stopped
+    networks: [rfid-net]
+    environment:
+      PORT: "3003"
+      WEBHOOK_HMAC_SECRET: "rfid-hmac-secret-dev"
+    ports:
+      - "3003:3003"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3003/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Alert Service (Sprint 5 T3) — Detecta anomalías y llama webhook ──
+  alert-service:
+    build:
+      context: ./alert-service
+      dockerfile: Dockerfile
+    container_name: rfid-alert
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      webhook-mock:
+        condition: service_healthy
+    environment:
+      PORT:                   "3002"
+      KAFKA_BOOTSTRAP:        kafka:9092
+      DB_URL:                 postgresql://rfid_app:rfid_pass@postgres:5432/rfid_transfers
+      WEBHOOK_URL:            http://webhook-mock:3003/webhook
+      WEBHOOK_HMAC_SECRET:    rfid-hmac-secret-dev
+      WEBHOOK_TIMEOUT_MS:     "5000"
+      WEBHOOK_MAX_RETRIES:    "3"
+      LOG_LEVEL:              info
+      NODE_ENV:               production
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 25s

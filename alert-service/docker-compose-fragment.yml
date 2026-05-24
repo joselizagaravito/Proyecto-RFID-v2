@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AGREGAR estos dos servicios al docker-compose.yml existente,
+# dentro del bloque "services:", DESPUÉS de "realtime-service".
+# ─────────────────────────────────────────────────────────────────────────────
+
+  # ── Webhook mock — simula el WMS/ERP externo ─────────────────────────────
+  webhook-mock:
+    build:
+      context: ./webhook-mock
+      dockerfile: Dockerfile
+    container_name: rfid-webhook-mock
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: "3003"
+      WEBHOOK_HMAC_SECRET: "rfid-hmac-secret-dev"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3003/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - rfid-net
+
+  # ── alert-service — detecta anomalías y llama al webhook ─────────────────
+  alert-service:
+    build:
+      context: ./alert-service
+      dockerfile: Dockerfile
+    container_name: rfid-alert
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: "3002"
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      DB_URL: "postgresql://rfid_app:rfid_pass@postgres:5432/rfid_transfers"
+      WEBHOOK_URL: "http://webhook-mock:3003/webhook"
+      WEBHOOK_HMAC_SECRET: "rfid-hmac-secret-dev"
+      WEBHOOK_TIMEOUT_MS: "5000"
+      WEBHOOK_MAX_RETRIES: "3"
+      LOG_LEVEL: "info"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      webhook-mock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    networks:
+      - rfid-net
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AGREGAR también en el bloque "nginx" (si existe) o en la config de Nginx
+# el proxy para el alert-service (opcional, solo si quieres exponerlo en :80):
+#
+#   location /alert/ {
+#     proxy_pass http://alert-service:3002/;
+#   }
+#   location /webhook-mock/ {
+#     proxy_pass http://webhook-mock:3003/;
+#   }
+# ─────────────────────────────────────────────────────────────────────────────

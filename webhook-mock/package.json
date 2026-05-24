@@ -1,0 +1,13 @@
+﻿{
+  "name": "webhook-mock",
+  "version": "1.0.0",
+  "description": "Receptor mock del webhook de alertas RFID — simula el WMS/ERP externo",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "4.19.2"
+  }
+}

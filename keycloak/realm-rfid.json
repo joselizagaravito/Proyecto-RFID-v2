@@ -1,0 +1,103 @@
+{
+  "realm": "rfid-realm",
+  "displayName": "RFID Traslados",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "accessTokenLifespan": 900,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      { "name": "ROLE_ADMIN",    "description": "Administrador del sistema RFID", "composite": false, "clientRole": false },
+      { "name": "ROLE_OPERATOR", "description": "Operador de almacen o tienda",   "composite": false, "clientRole": false },
+      { "name": "ROLE_READER",   "description": "Auditor solo lectura GET",        "composite": false, "clientRole": false },
+      { "name": "ROLE_DEVICE",   "description": "Lector RFID o PDA",              "composite": false, "clientRole": false }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "rfid-frontend",
+      "name": "RFID Frontend Web SPA",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://38.253.180.55/*",
+        "http://localhost:3000/*",
+        "http://localhost/*"
+      ],
+      "webOrigins": [
+        "http://38.253.180.55",
+        "http://localhost:3000",
+        "http://localhost"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://38.253.180.55/*##http://localhost:3000/*"
+      },
+      "defaultClientScopes": ["web-origins","acr","profile","roles","email"]
+    },
+    {
+      "clientId": "rfid-backend",
+      "name": "RFID Backend Resource Server",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "rfid-device",
+      "name": "RFID Device Client",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "protocol": "openid-connect",
+      "secret": "rfid-device-secret-2026",
+      "defaultClientScopes": ["web-origins","acr","profile","roles"]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin.rfid",
+      "email": "admin@rfid.pystelectronic.com",
+      "firstName": "Administrador", "lastName": "RFID",
+      "enabled": true, "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Admin@2026!", "temporary": false }],
+      "realmRoles": ["ROLE_ADMIN"]
+    },
+    {
+      "username": "operador.almacen",
+      "email": "almacen@rfid.pystelectronic.com",
+      "firstName": "Operador", "lastName": "Almacen",
+      "enabled": true, "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Oper@2026!", "temporary": false }],
+      "realmRoles": ["ROLE_OPERATOR"]
+    },
+    {
+      "username": "operador.tienda",
+      "email": "tienda@rfid.pystelectronic.com",
+      "firstName": "Operador", "lastName": "Tienda",
+      "enabled": true, "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Tienda@2026!", "temporary": false }],
+      "realmRoles": ["ROLE_OPERATOR"]
+    },
+    {
+      "username": "auditor.rfid",
+      "email": "auditor@rfid.pystelectronic.com",
+      "firstName": "Auditor", "lastName": "RFID",
+      "enabled": true, "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Audit@2026!", "temporary": false }],
+      "realmRoles": ["ROLE_READER"]
+    }
+  ]
+}

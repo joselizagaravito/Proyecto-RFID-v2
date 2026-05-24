@@ -6,6 +6,8 @@ COPY rfid-common/pom.xml rfid-common/
 COPY transfer-api/pom.xml transfer-api/
 COPY read-tag-service/pom.xml read-tag-service/
 COPY validation-service/pom.xml validation-service/
+COPY audit-service/pom.xml audit-service/
+COPY audit-service/pom.xml audit-service/
 
 RUN mvn dependency:go-offline -pl validation-service -am -q
 

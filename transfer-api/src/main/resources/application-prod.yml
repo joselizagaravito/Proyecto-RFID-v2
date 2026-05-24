@@ -1,0 +1,79 @@
+# ══════════════════════════════════════════════════════════════════
+# transfer-api — Perfil PRODUCCIÓN (Sprint 6)
+# Activa Keycloak JWT real. DevSecurityConfig solo activo en 'dev'.
+# Las variables de entorno las inyecta docker-compose.yml
+# ══════════════════════════════════════════════════════════════════
+server:
+  port: 8080
+
+spring:
+  application:
+    name: rfid-transfer-api
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:rfid_transfers}
+    username: ${DB_USER:rfid_app}
+    password: ${DB_PASS:rfid_pass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: TransferApiPool
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:kafka:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+
+  # ── OAuth2 Resource Server: valida JWT contra Keycloak ────────
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri:  ${JWT_ISSUER_URI:http://keycloak:8080/auth/realms/rfid-realm}
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.pystelectronic.rfid: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
+
+# Habilitar ejecución asíncrona para AuditLogService
+spring.task.execution:
+  pool:
+    core-size: 2
+    max-size: 5
+    queue-capacity: 100

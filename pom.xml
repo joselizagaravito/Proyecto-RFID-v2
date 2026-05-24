@@ -1,11 +1,11 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <!-- ── Parent Spring Boot BOM ── -->
+  <!-- â”€â”€ Parent Spring Boot BOM â”€â”€ -->
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
@@ -17,21 +17,19 @@
   <artifactId>rfid-transfers-backend</artifactId>
   <version>1.0.0-SNAPSHOT</version>
   <packaging>pom</packaging>
-  <name>RFID Transfers Backend — Parent POM</name>
-  <description>Sistema RFID de Traslados — Arquitectura Multi-Módulo</description>
+  <name>RFID Transfers Backend â€” Parent POM</name>
+  <description>Sistema RFID de Traslados â€” Arquitectura Multi-MÃ³dulo</description>
 
-  <!-- ── Módulos ── -->
+  <!-- â”€â”€ MÃ³dulos â”€â”€ -->
   <modules>
     <module>rfid-common</module>
     <module>transfer-api</module>
     <module>read-tag-service</module>
     <module>validation-service</module>
-    <!-- Próximos sprints:
     <module>audit-service</module>
-    -->
   </modules>
 
-  <!-- ── Propiedades globales ── -->
+  <!-- â”€â”€ Propiedades globales â”€â”€ -->
   <properties>
     <java.version>21</java.version>
     <maven.compiler.source>21</maven.compiler.source>
@@ -47,11 +45,11 @@
     <jjwt.version>0.12.6</jjwt.version>
   </properties>
 
-  <!-- ── Dependency Management (BOM) ── -->
+  <!-- â”€â”€ Dependency Management (BOM) â”€â”€ -->
   <dependencyManagement>
     <dependencies>
 
-      <!-- Módulo común interno -->
+      <!-- MÃ³dulo comÃºn interno -->
       <dependency>
         <groupId>com.pystelectronic.rfid</groupId>
         <artifactId>rfid-common</artifactId>
@@ -109,7 +107,7 @@
     </dependencies>
   </dependencyManagement>
 
-  <!-- ── Plugin Management ── -->
+  <!-- â”€â”€ Plugin Management â”€â”€ -->
   <build>
     <pluginManagement>
       <plugins>
@@ -146,3 +144,6 @@
   </build>
 
 </project>
+
+
+

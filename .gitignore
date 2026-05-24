@@ -8,3 +8,5 @@ target/
 .DS_Store
 application-secrets.yml
 *.env
+
+realtime-service/node_modules/

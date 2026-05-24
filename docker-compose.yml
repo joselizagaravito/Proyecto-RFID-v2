@@ -85,7 +85,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_NUM_PARTITIONS: 3
-      CLUSTER_ID: "rfid-cluster-2026-v1"
+      CLUSTER_ID: "9KabTW_TTKWKWjUfXZpP7w"
     volumes:
       - kafka_data:/var/lib/kafka/data
     ports:

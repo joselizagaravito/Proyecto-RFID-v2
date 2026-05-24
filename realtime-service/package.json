@@ -1,0 +1,20 @@
+{
+  "name": "realtime-service",
+  "version": "1.0.0",
+  "description": "RFID Realtime WebSocket service — Sprint 5 T2",
+  "main": "src/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "kafkajs": "2.2.4",
+    "ioredis": "5.4.1",
+    "socket.io": "4.7.5",
+    "express": "4.19.2"
+  }
+}

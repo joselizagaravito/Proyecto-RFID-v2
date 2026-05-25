@@ -126,7 +126,10 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: admin123
       # dev-mem: en memoria, suficiente para producción small-scale
       # Para producción real usar KC_DB=postgres con su propia BD
-      KC_DB:                   dev-mem
+      KC_DB:                   postgres
+      KC_DB_URL:               jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME:          rfid_app
+      KC_DB_PASSWORD:          rfid_pass
       KC_HOSTNAME_STRICT:      "false"
       KC_HTTP_ENABLED:         "true"
       # Path relativo — debe coincidir con el proxy_pass de Nginx

@@ -1,6 +1,6 @@
 package com.pystelectronic.rfid.transfer.controller.dto;
 
-import com.pystelectronic.rfid.transfer.model.PalletTag;
+import com.pystelectronic.rfid.transfer.entity.PalletTag;
 
 import java.time.Instant;
 import java.util.UUID;

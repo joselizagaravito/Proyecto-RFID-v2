@@ -2,7 +2,7 @@ package com.pystelectronic.rfid.transfer.service;
 
 import com.pystelectronic.rfid.transfer.controller.dto.PalletTagRequest;
 import com.pystelectronic.rfid.transfer.controller.dto.PalletTagResponse;
-import com.pystelectronic.rfid.transfer.model.PalletTag;
+import com.pystelectronic.rfid.transfer.entity.PalletTag;
 import com.pystelectronic.rfid.transfer.repository.PalletTagRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

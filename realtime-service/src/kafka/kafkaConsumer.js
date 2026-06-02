@@ -51,6 +51,10 @@ async function connectWithRetry(onMessage, attempt = 1) {
         parsed._kafkaOffset = message.offset;
         parsed._kafkaPartition = partition;
         parsed._receivedAt = new Date().toISOString();
+        if (parsed.epc && !parsed.epcCode) parsed.epcCode = parsed.epc;
+        if (parsed.result && !parsed.status) parsed.status = parsed.result;
+        if (parsed.deviceId && !parsed.portalId) parsed.portalId = parsed.deviceId;
+        if (!parsed.status) parsed.status = "VALID";
         try {
           const classified = await classifyMessage(parsed);
           console.debug(`[Kafka] '${classified.type}' | epc=${parsed.epcCode} | portal=${parsed.portalId}`);

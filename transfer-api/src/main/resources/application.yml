@@ -34,6 +34,7 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: false
     validate-on-migrate: true
+    ignore-migration-patterns: "*:ignored,*:missing"
     out-of-order: false
 
   # ── Redis (caché de estado en vivo) ──────────────────────────
@@ -72,8 +73,7 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: ${JWT_ISSUER_URI:http://localhost:8180/realms/rfid-realm}
-          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8180/realms/rfid-realm/protocol/openid-connect/certs}
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs}
 
   # ── Jackson ──────────────────────────────────────────────────
   jackson:
@@ -128,7 +128,8 @@ logging:
   level:
     root: INFO
     com.pystelectronic.rfid: DEBUG
-    org.springframework.security: INFO
+    org.springframework.security: DEBUG
+    org.springframework.security.oauth2: DEBUG
     org.hibernate.SQL: WARN
     org.apache.kafka: WARN
   pattern:
@@ -160,7 +161,7 @@ spring:
       resourceserver:
         jwt:
           # En dev se puede usar un mock de Keycloak o deshabilitar
-          issuer-uri: http://localhost:8180/realms/rfid-realm
+          issuer-uri: http://38.253.180.55:8180/auth/realms/rfid-realm
 
 logging:
   level:

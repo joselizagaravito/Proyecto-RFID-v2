@@ -1,5 +1,6 @@
 {
   "realm": "rfid-realm",
+  "loginTheme": "pystelectronic",
   "displayName": "RFID Traslados",
   "enabled": true,
   "sslRequired": "none",

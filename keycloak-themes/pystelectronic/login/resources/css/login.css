@@ -1,0 +1,39 @@
+*{box-sizing:border-box}
+:root{--pf-v5-global--FontFamily--sans-serif:'Segoe UI',Arial,sans-serif}
+html,body{margin:0;padding:0;background:#f0f2f5!important;font-family:'Segoe UI',Arial,sans-serif!important}
+.pf-v5-c-login{background:#f0f2f5!important;min-height:100vh;display:flex!important;align-items:center!important;justify-content:center!important;padding:2rem 1rem}
+.pf-v5-c-login__container{width:100%;max-width:440px}
+.pf-v5-c-login__main{border-radius:12px!important;box-shadow:0 8px 32px rgba(26,31,46,0.18)!important;overflow:hidden!important;background:#fff!important;border:none!important}
+.pf-v5-c-login__main-header{background:#1a1f2e!important;border-bottom:3px solid #cc2222!important;padding:1.4rem 2rem 1rem!important;display:flex!important;align-items:center!important;gap:1rem!important}
+.pf-v5-c-login__main-header::before{content:'';display:block;width:180px;min-width:180px;height:44px;background:url('../img/logo.png') left center/contain no-repeat}
+.pf-v5-c-login__main-header::after{content:'Sistema RFID de Traslados';color:rgba(255,255,255,0.55);font-size:0.68rem;letter-spacing:0.12em;text-transform:uppercase;white-space:nowrap}
+.pf-v5-c-login__main-header .pf-v5-c-title{display:none!important}
+#kc-locale,.pf-v5-c-login__main-header-utilities{display:none!important}
+.pf-v5-c-login__main-body{padding:1.6rem 2rem!important;background:#fff!important}
+.pf-v5-c-form__group{margin-bottom:1rem!important}
+.pf-v5-c-form__label-text{color:#2c3e50!important;font-size:0.72rem!important;font-weight:700!important;text-transform:uppercase!important;letter-spacing:0.06em!important}
+.pf-v5-c-form-control{border:1.5px solid #dde1e9!important;border-radius:6px!important;background:#fafbfc!important;height:40px!important;padding:0 0.85rem!important;font-size:0.88rem!important;outline:none!important}
+.pf-v5-c-form-control::after,.pf-v5-c-form-control::before{display:none!important}
+.pf-v5-c-form-control:focus,.pf-v5-c-form-control:focus-within{border-color:#1a8c7a!important;box-shadow:0 0 0 3px rgba(26,140,122,0.13)!important;outline:none!important}
+input[type="text"],input[type="password"],input[type="email"]{outline:none!important;-webkit-appearance:none!important}
+.pf-v5-c-input-group{border:1.5px solid #dde1e9!important;border-radius:6px!important;background:#fafbfc!important;height:40px!important;display:flex!important;align-items:center!important;overflow:hidden!important}
+.pf-v5-c-input-group input{border:none!important;box-shadow:none!important;outline:none!important;background:transparent!important;height:38px!important;flex:1!important;padding:0 0.85rem!important;font-size:0.88rem!important}
+.pf-v5-c-input-group:focus-within{border-color:#1a8c7a!important;box-shadow:0 0 0 3px rgba(26,140,122,0.13)!important}
+.pf-v5-c-button.pf-m-plain{background:transparent!important;border:none!important;padding:0 10px!important;color:#8492a6!important;box-shadow:none!important}
+.pf-v5-c-button.pf-m-primary,#kc-login{background:#1a1f2e!important;border:none!important;border-radius:6px!important;height:42px!important;font-size:0.82rem!important;font-weight:700!important;letter-spacing:0.08em!important;color:#fff!important;width:100%!important;cursor:pointer!important;text-transform:uppercase!important}
+.pf-v5-c-button.pf-m-primary:hover,#kc-login:hover{background:#cc2222!important}
+a{color:#1a8c7a!important}
+a:hover{color:#cc2222!important}
+.pf-v5-c-login__main-footer{border-top:1px solid #dde1e9!important;background:#fafbfc!important;padding:0.8rem 2rem!important;text-align:center!important}
+.pf-v5-c-login__main-footer-band{display:none!important}
+.pf-v5-c-login__main-header-desc,#kc-page-title{color:#8492a6!important;font-size:0.75rem!important;text-transform:uppercase!important;letter-spacing:0.1em!important;text-align:center!important;font-weight:400!important}
+
+/* ── Ocultar título del realm en header KC ── */
+#kc-header-wrapper,
+#kc-header,
+.login-pf-page-header {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}

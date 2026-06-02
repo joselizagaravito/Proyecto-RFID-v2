@@ -53,8 +53,8 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri:  ${JWT_ISSUER_URI:http://keycloak:8080/auth/realms/rfid-realm}
-          jwk-set-uri: ${JWT_JWK_SET_URI:http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs}
+          issuer-uri:  ${JWT_ISSUER_URI:http://38.253.180.55/auth/realms/rfid-realm}
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://keycloak:8081/auth/realms/rfid-realm/protocol/openid-connect/certs}
 
 management:
   endpoints:

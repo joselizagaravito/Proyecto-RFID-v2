@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RFID Traslados v19 — Pystelectronic</title>
+<link rel="stylesheet" href="css/rfid.css"/>
+<!-- CryptoJS: fallback SHA-256 para HTTP (sin crypto.subtle) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+<!-- Socket.IO client 4.7 — cliente WebSocket para realtime-service -->
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+/* Sprint 9 — Sesión de Pallet */
+.session-empty { text-align:center; padding:32px 16px; color:var(--muted,#888); }
+.session-pallet-activo { padding:4px 0; }
+.session-pallet-header { display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; background:var(--surface2,#1e2535); border-radius:8px; margin-bottom:12px; }
+.session-pallet-code { font-size:1.1rem; font-weight:700; font-family:'IBM Plex Mono',monospace;
+  color:var(--primary,#4F8EF7); }
+.session-lpn-counter { text-align:center; min-width:56px; }
+.session-lpn-num { display:block; font-size:2rem; font-weight:800; color:var(--success,#22c55e);
+  line-height:1; }
+.session-lpn-list { max-height:260px; overflow-y:auto; }
+.session-lpn-item { display:flex; align-items:center; gap:8px; padding:6px 8px;
+  border-radius:6px; margin-bottom:3px; background:var(--surface2,#1e2535); }
+.session-lpn-badge { color:var(--success,#22c55e); font-weight:700; font-size:14px; }
+.session-rejected-flash { background:#7f1d1d; color:#fca5a5; border-radius:8px;
+  padding:10px 14px; font-size:13px; font-weight:600; margin-bottom:10px;
+  animation:flashIn .3s ease; }
+@keyframes flashIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:none} }
+.btn-danger { background:#dc2626; color:#fff; border:none; }
+.btn-danger:hover { background:#b91c1c; }
+</style>
+</head>
+<body>
+
+<!-- ══════ PANTALLA DE LOGIN ══════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="img/logo-pys.png" alt="P&amp;S Telectronic S.A."
+           style="max-height:60px;max-width:260px;object-fit:contain;"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block'"/>
+      <span style="display:none;font-size:1.1rem;font-weight:700;color:#1a1f2e;">P&amp;S Telectronic S.A.</span>
+    </div>
+    <div class="login-sub">Sistema RFID de Traslados · Pystelectronic</div>
+    <button class="login-btn" id="loginBtn" onclick="iniciarLogin()">
+      Ingresar al Sistema
+    </button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- ══════ APLICACIÓN ══════ -->
+<div id="app">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-brand">
+      📦 RFID Traslados <small>v19</small>
+    </div>
+    <div class="topbar-user">
+      <span id="user-display">—</span>
+      <span class="role-badge" id="role-badge">—</span>
+      <button class="logout-btn" onclick="cerrarSesion()">Salir</button>
+    </div>
+  </div>
+
+  <!-- Barra tiempo real -->
+  <div class="rt-bar" id="rt-bar">
+    <div class="rt-stat">
+      <span class="rt-dot" id="ws-dot"></span> WebSocket
+    </div>
+    <div class="rt-stat">Lecturas hoy: <span id="rt-reads">—</span></div>
+    <div class="rt-stat">En tránsito: <span id="rt-transit">—</span></div>
+    <div class="rt-stat">Alertas: <span id="rt-alerts-count" style="color:#FFB347">—</span></div>
+    <div class="rt-ticker" id="rt-ticker">Esperando eventos...</div>
+  </div>
+
+  <!-- Nav -->
+  <div class="nav-bar">
+    <button class="nav-tab tab-new active" data-tab="kpis" onclick="showTab('kpis')">📊 Dashboard KPIs</button>
+    <button class="nav-tab tab-new" data-tab="despacho" onclick="showTab('despacho')">🚢 Despacho</button>
+    <button class="nav-tab tab-new" data-tab="recepcion" onclick="showTab('recepcion')">📥 Recepción</button>
+    <button class="nav-tab" data-tab="traslados" onclick="showTab('traslados')">🚚 Traslados</button>
+    <button class="nav-tab" data-tab="pallets" onclick="showTab('pallets')">📦 Pallets</button>
+    <button class="nav-tab" data-tab="readtags" onclick="showTab('readtags')">📡 Lecturas</button>
+    <button class="nav-tab" data-tab="validaciones" onclick="showTab('validaciones')">✅ Validaciones</button>
+    <button class="nav-tab" data-tab="sesion" onclick="showTab('sesion')">🔄 Sesión Pallet</button>
+    <button class="nav-tab oculto" data-tab="pallet-tags" onclick="showTab('pallet-tags')">🔵 Tags Pallet</button>
+    <button class="nav-tab oculto" data-tab="auditoria" onclick="showTab('auditoria')">🔍 Auditoría</button>
+  </div>
+
+  <div class="content">
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: DASHBOARD KPIs
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane active" id="tab-kpis">
+
+      <!-- KPI Cards grandes -->
+      <div class="kpi-grid" id="kpi-grid">
+        <div class="kpi-card c0">
+          <div class="kpi-icon">📦</div>
+          <div class="kpi-value" id="kpi-total">—</div>
+          <div class="kpi-label">Total Traslados</div>
+          <div class="kpi-delta" id="kpi-total-d">—</div>
+        </div>
+        <div class="kpi-card c1">
+          <div class="kpi-icon">🚛</div>
+          <div class="kpi-value" id="kpi-transit">—</div>
+          <div class="kpi-label">En Tránsito</div>
+          <div class="kpi-delta" id="kpi-transit-d">activos ahora</div>
+        </div>
+        <div class="kpi-card c2">
+          <div class="kpi-icon">📡</div>
+          <div class="kpi-value" id="kpi-reads">—</div>
+          <div class="kpi-label">Lecturas RFID</div>
+          <div class="kpi-delta" id="kpi-reads-d">total acumulado</div>
+        </div>
+        <div class="kpi-card c3">
+          <div class="kpi-icon">✅</div>
+          <div class="kpi-value pct" id="kpi-eficiencia">—</div>
+          <div class="kpi-label">Eficiencia RFID</div>
+          <div class="kpi-delta" id="kpi-efic-d">lecturas válidas</div>
+        </div>
+        <div class="kpi-card c4">
+          <div class="kpi-icon">📬</div>
+          <div class="kpi-value" id="kpi-received">—</div>
+          <div class="kpi-label">Recibidos</div>
+          <div class="kpi-delta" id="kpi-recv-d">esta semana</div>
+        </div>
+        <div class="kpi-card c5">
+          <div class="kpi-icon">⚠️</div>
+          <div class="kpi-value" id="kpi-alertas">—</div>
+          <div class="kpi-label">Alertas Activas</div>
+          <div class="kpi-delta" id="kpi-alrt-d">últimas 24h</div>
+        </div>
+      </div>
+
+      <!-- Portales RFID en tiempo real -->
+      <div class="card">
+        <div class="card-title">
+          🔵 Estado de Portales RFID
+          <small>· actualización en tiempo real vía WebSocket</small>
+          <button class="btn btn-sm btn-outline" style="margin-left:auto"
+            onclick="cargarPortales()">↺ Actualizar</button>
+        </div>
+        <div class="portal-grid" id="portal-grid">
+          <div style="color:var(--muted);font-size:13px;grid-column:1/-1">
+            Esperando eventos de portales...
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Actividad últimas horas -->
+        <div class="card">
+          <div class="card-title">📈 Actividad — Traslados por Estado</div>
+          <div class="stat-inline" id="status-breakdown">
+            <div class="stat-inline-item">
+              <div class="stat-inline-val" id="sb-draft">—</div>
+              <div class="stat-inline-lbl">Borrador</div>
+            </div>
+            <div class="stat-inline-item">
+              <div class="stat-inline-val" id="sb-prep">—</div>
+              <div class="stat-inline-lbl">Preparados</div>
+            </div>
+            <div class="stat-inline-item">
+              <div class="stat-inline-val" id="sb-disp">—</div>
+              <div class="stat-inline-lbl">Despachados</div>
+            </div>
+            <div class="stat-inline-item">
+              <div class="stat-inline-val" id="sb-tran">—</div>
+              <div class="stat-inline-lbl">En Tránsito</div>
+            </div>
+            <div class="stat-inline-item">
+              <div class="stat-inline-val" id="sb-recv">—</div>
+              <div class="stat-inline-lbl">Recibidos</div>
+            </div>
+          </div>
+
+          <!-- Mini gráfico de barras SVG -->
+          <svg class="activity-chart" id="activity-svg" viewBox="0 0 400 100"
+            xmlns="http://www.w3.org/2000/svg">
+            <text x="10" y="95" font-size="10" fill="#aaa">Generando datos...</text>
+          </svg>
+        </div>
+
+        <!-- Feed tiempo real -->
+        <div class="card">
+          <div class="card-title">
+            📡 Feed Tiempo Real
+            <span class="rt-dot" id="ws-dot2" style="margin-left:6px"></span>
+          </div>
+          <div class="ws-terminal" id="ws-events">Conectando al realtime-service...</div>
+        </div>
+      </div>
+
+      <!-- Traslados recientes con acciones rápidas -->
+      <div class="card">
+        <div class="card-title">
+          🚚 Traslados Recientes
+          <button class="btn btn-sm btn-outline" style="margin-left:auto"
+            onclick="cargarKPIs()">↺ Actualizar</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Código</th><th>Origen</th><th>Destino</th>
+                <th>Estado</th><th>Prioridad</th><th>Pallets</th><th>Creado</th><th>Acción Rápida</th>
+              </tr>
+            </thead>
+            <tbody id="kpi-transfers">
+              <tr><td colspan="8" class="no-data">Cargando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: DESPACHO
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane" id="tab-despacho">
+
+      <!-- Stepper -->
+      <div class="stepper" id="dispatch-stepper">
+        <div class="step active" id="dstep-1">
+          <span class="step-num">1</span>Seleccionar Traslado
+        </div>
+        <div class="step" id="dstep-2">
+          <span class="step-num">2</span>Validar RFID
+        </div>
+        <div class="step" id="dstep-3">
+          <span class="step-num">3</span>Confirmar Despacho
+        </div>
+      </div>
+
+      <!-- Paso 1: Seleccionar traslado PREPARED -->
+      <div id="dispatch-step1">
+        <div class="card">
+          <div class="card-title">
+            📋 Traslados Listos para Despacho
+            <small>· Solo se muestran en estado PREPARED</small>
+            <button class="btn btn-sm btn-outline" style="margin-left:auto"
+              onclick="cargarTrasladosDespacho()">↺ Actualizar</button>
+          </div>
+          <div id="dispatch-list">
+            <div style="color:var(--muted);text-align:center;padding:24px">Cargando traslados PREPARED...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paso 2: Validación RFID pre-despacho -->
+      <div id="dispatch-step2" style="display:none">
+        <div class="card">
+          <div class="card-title">✅ Validación RFID Pre-Despacho</div>
+          <div id="dispatch-transfer-info" class="alert alert-info" style="margin-bottom:16px"></div>
+
+          <div class="form-grid" style="margin-bottom:16px">
+            <div class="form-group">
+              <label>EPC (24 hex)*</label>
+              <input id="dsp-epc" placeholder="E2806894000040038660A111" maxlength="24"/>
+            </div>
+            <div class="form-group">
+              <label>LPN Code</label>
+              <input id="dsp-lpn" placeholder="99950000272607" maxlength="14"/>
+            </div>
+            <div class="form-group">
+              <label>Device ID*</label>
+              <input id="dsp-device" placeholder="PORTAL-ORIGEN-01" maxlength="40"/>
+            </div>
+            <div class="form-group">
+              <label>Tipo Dispositivo</label>
+              <select id="dsp-devtype">
+                <option value="PORTAL">Portal RFID</option>
+                <option value="HANDHELD">Handheld PDA</option>
+                <option value="TUNNEL">Túnel</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+            <button class="btn btn-primary" onclick="validarRFIDDespacho()">📡 Validar EPC</button>
+            <button class="btn btn-secondary" onclick="irDespachoStep3()">→ Continuar a Confirmar</button>
+            <button class="btn btn-outline" onclick="volverDespachoStep1()">← Volver</button>
+          </div>
+          <div id="msg-dsp-val" style="margin-bottom:12px"></div>
+
+          <!-- Checklist de validaciones realizadas -->
+          <div class="card-title" style="font-size:13px;margin-bottom:10px">
+            Validaciones realizadas
+          </div>
+          <ul class="rfid-checklist" id="dispatch-checklist">
+            <li class="rfid-check-item">
+              <div class="chk chk-pend">?</div>
+              <span>Sin validaciones aún — use el formulario de arriba</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Paso 3: Confirmar despacho -->
+      <div id="dispatch-step3" style="display:none">
+        <div class="card">
+          <div class="card-title">🚢 Confirmar Despacho</div>
+          <div id="dispatch-confirm-info" class="alert alert-warn" style="margin-bottom:16px"></div>
+
+          <div class="form-grid" style="margin-bottom:16px">
+            <div class="form-group">
+              <label>Transportista*</label>
+              <input id="dsp-carrier" placeholder="CARRIER-01" maxlength="36"/>
+            </div>
+            <div class="form-group">
+              <label>Número de Guía</label>
+              <input id="dsp-guide" placeholder="GUÍ-2026-001" maxlength="50"/>
+            </div>
+            <div class="form-group">
+              <label>Placa Vehículo</label>
+              <input id="dsp-plate" placeholder="ABC-123" maxlength="10"/>
+            </div>
+            <div class="form-group">
+              <label>Observaciones</label>
+              <textarea id="dsp-remarks" placeholder="Observaciones del despacho..."></textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-primary" id="btn-dispatch-confirm"
+              onclick="confirmarDespacho()">🚢 Confirmar Despacho</button>
+            <button class="btn btn-outline" onclick="irDespachoStep2()">← Volver a Validar</button>
+          </div>
+          <div id="msg-dispatch" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: RECEPCIÓN
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane" id="tab-recepcion">
+
+      <div class="stepper">
+        <div class="step active" id="rstep-1"><span class="step-num">1</span>Seleccionar Traslado</div>
+        <div class="step" id="rstep-2"><span class="step-num">2</span>Registrar Recepción</div>
+        <div class="step" id="rstep-3"><span class="step-num">3</span>Reconciliación</div>
+      </div>
+
+      <!-- Paso 1: Traslados IN_TRANSIT o DISPATCHED -->
+      <div id="receipt-step1">
+        <div class="card">
+          <div class="card-title">
+            📋 Traslados Pendientes de Recepción
+            <small>· Estados: DISPATCHED · IN_TRANSIT</small>
+            <button class="btn btn-sm btn-outline" style="margin-left:auto"
+              onclick="cargarTrasladosRecepcion()">↺ Actualizar</button>
+          </div>
+          <div id="receipt-list">
+            <div style="color:var(--muted);text-align:center;padding:24px">Cargando traslados...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paso 2: Registrar recepción -->
+      <div id="receipt-step2" style="display:none">
+        <div class="card">
+          <div class="card-title">📥 Registrar Recepción</div>
+          <div id="receipt-transfer-info" class="alert alert-info" style="margin-bottom:16px"></div>
+
+          <div class="form-grid" style="margin-bottom:16px">
+            <div class="form-group">
+              <label>Device ID receptor*</label>
+              <input id="rec-device" placeholder="PORTAL-DESTINO-01" maxlength="40"/>
+            </div>
+            <div class="form-group">
+              <label>Tipo Dispositivo</label>
+              <select id="rec-devtype">
+                <option value="PORTAL">Portal RFID</option>
+                <option value="HANDHELD">Handheld PDA</option>
+                <option value="TUNNEL">Túnel</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Observaciones de Recepción</label>
+              <textarea id="rec-remarks" placeholder="Notas del proceso de recepción..."></textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="confirmarRecepcion()">📥 Confirmar Recepción</button>
+            <button class="btn btn-outline" onclick="volverRecepcionStep1()">← Volver</button>
+          </div>
+          <div id="msg-receipt" style="margin-top:12px"></div>
+        </div>
+      </div>
+
+      <!-- Paso 3: Reconciliación -->
+      <div id="receipt-step3" style="display:none">
+        <div class="card mb-0">
+          <div class="card-title">📊 Resultado de Reconciliación</div>
+          <div id="reconcile-result">
+            <div style="color:var(--muted);text-align:center;padding:24px">Calculando reconciliación...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: TRASLADOS (igual que v15)
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane" id="tab-traslados">
+      <div class="card" id="card-crear-traslado">
+        <div class="card-title">➕ Crear Traslado</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Origen*</label><input id="t-origin" placeholder="A001" maxlength="10"/></div>
+          <div class="form-group"><label>Destino*</label><input id="t-dest" placeholder="B001" maxlength="10"/></div>
+          <div class="form-group"><label>Prioridad*</label>
+            <select id="t-priority">
+              <option value="NORMAL">Normal</option><option value="HIGH">Alta</option>
+              <option value="URGENT">Urgente</option><option value="LOW">Baja</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Fecha Programada*</label><input type="datetime-local" id="t-date"/></div>
+          <div class="form-group"><label>Transportista</label><input id="t-carrier" placeholder="CARRIER-01" maxlength="36"/></div>
+          <div class="form-group"><label>Observaciones</label><input id="t-remarks" maxlength="500"/></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="crearTraslado()">Crear Traslado</button>
+        <div id="msg-traslado" style="margin-top:12px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">📋 Lista de Traslados
+          <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="cargarTraslados()">↺ Actualizar</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Código</th><th>Origen</th><th>Destino</th><th>Estado</th><th>Prioridad</th><th>Creado</th><th>Acción</th></tr></thead>
+            <tbody id="lista-traslados"><tr><td colspan="7" class="no-data">—</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: PALLETS
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane" id="tab-pallets">
+      <div class="card">
+        <div class="card-title">📦 Agregar Pallet</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Transfer ID*</label><input id="p-tid" placeholder="UUID del traslado"/></div>
+          <div class="form-group"><label>Código Pallet* (PL+12 dígitos)</label><input id="p-code" placeholder="PL954001302868" maxlength="14"/></div>
+          <div class="form-group"><label>Peso (kg)</label><input type="number" id="p-weight" step="0.01"/></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="agregarPallet()">Agregar Pallet</button>
+        <div id="msg-pallet" style="margin-top:12px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🔍 Ver Contenido del Pallet</div>
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <input id="pallet-query" placeholder="Pallet ID (UUID)" style="flex:1;min-width:200px;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;"/>
+          <button class="btn btn-secondary" onclick="verPallet()">Ver</button>
+        </div>
+        <div id="pallet-detail"></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: LECTURAS
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane" id="tab-readtags">
+      <div class="card">
+        <div class="card-title">📡 Registrar Lectura RFID</div>
+        <div class="form-grid">
+          <div class="form-group"><label>EPC (24 hex)*</label><input id="rt-epc" placeholder="E2806894000040038660A111" maxlength="24"/></div>
+          <div class="form-group"><label>Tag</label><input id="rt-tag" maxlength="100"/></div>
+          <div class="form-group"><label>Módulo ID</label><input id="rt-modulo" placeholder="PORTAL-01" maxlength="40"/></div>
+          <div class="form-group"><label>RSSI</label><input type="number" id="rt-rssi" placeholder="-60"/></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="registrarLectura()">Registrar</button>
+        <div id="msg-readtag" style="margin-top:12px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">📋 Lecturas Recientes
+          <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="cargarLecturas()">↺ Actualizar</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>EPC</th><th>Tag</th><th>Módulo</th><th>RSSI</th><th>Última Lectura</th></tr></thead>
+            <tbody id="lista-lecturas"><tr><td colspan="6" class="no-data">—</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: VALIDACIONES
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane" id="tab-validaciones">
+      <div class="card">
+        <div class="card-title">✅ Validar Lectura RFID</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Transfer ID*</label><input id="v-tid" placeholder="UUID del traslado"/></div>
+          <div class="form-group"><label>LPN Code</label><input id="v-lpn" placeholder="99950000272607" maxlength="14"/></div>
+          <div class="form-group"><label>EPC</label><input id="v-epc" placeholder="E2806894000040038660A111" maxlength="24"/></div>
+          <div class="form-group"><label>Device ID*</label><input id="v-device" placeholder="PORTAL-01" maxlength="40"/></div>
+          <div class="form-group"><label>Tipo Dispositivo*</label>
+            <select id="v-devtype">
+              <option value="PORTAL">Portal RFID</option>
+              <option value="HANDHELD">Handheld PDA</option>
+              <option value="TUNNEL">Túnel</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="validarLectura()">Validar</button>
+        <div id="msg-validacion" style="margin-top:12px"></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: AUDITORÍA (solo ADMIN)
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane" id="tab-auditoria">
+      <div class="card">
+        <div class="card-title">🔍 Consulta de Auditoría</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Desde*</label><input type="datetime-local" id="aud-start"/></div>
+          <div class="form-group"><label>Hasta*</label><input type="datetime-local" id="aud-end"/></div>
+          <div class="form-group"><label>Usuario</label><input id="aud-user" placeholder="operador.almacen"/></div>
+          <div class="form-group"><label>IP Cliente</label><input id="aud-ip" placeholder="192.168.1.1"/></div>
+          <div class="form-group"><label>Método</label>
+            <select id="aud-method">
+              <option value="">Todos</option><option>GET</option><option>POST</option>
+              <option>PUT</option><option>DELETE</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Nivel</label>
+            <select id="aud-level">
+              <option value="">Todos</option><option>FULL</option>
+              <option>STANDARD</option><option>READ</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="consultarAuditoria()" style="margin-top:16px">🔍 Consultar</button>
+        <div id="audit-result" style="margin-top:16px"></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: TAGS PALLET (Sprint 8 · T4 + T5)
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane" id="tab-pallet-tags">
+
+      <!-- Formulario: registrar nuevo EPC como pallet tag -->
+      <div class="card" id="card-pt-nuevo">
+        <div class="card-title">🔵 Registrar EPC como Tag de Pallet</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>EPC* (hexadecimal, sin guiones)</label>
+            <input id="pt-epc" placeholder="E200001D880C018010209CBA" maxlength="50"
+                   style="font-family:'IBM Plex Mono',monospace;"
+                   oninput="this.value=this.value.replace(/-/g,'').toUpperCase()"/>
+          </div>
+          <div class="form-group">
+            <label>TID (opcional)</label>
+            <input id="pt-tid" placeholder="E200001D880C01XXXXXXXXXX" maxlength="50"
+                   style="font-family:'IBM Plex Mono',monospace;"
+                   oninput="this.value=this.value.replace(/-/g,'').toUpperCase()"/>
+          </div>
+          <div class="form-group">
+            <label>Descripción (opcional)</label>
+            <input id="pt-desc" placeholder="Pallet físico almacén central" maxlength="100"/>
+          </div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="crearPalletTag()">➕ Registrar Tag</button>
+        <div id="msg-pt" style="margin-top:12px"></div>
+      </div>
+
+      <!-- Sincronizar desde servidor central (T5) -->
+      <div class="card">
+        <div class="card-title">🔄 Sincronizar con Servidor Central</div>
+        <p class="sync-note" style="margin-bottom:14px;">
+          Descarga los pallet_tags del servidor y genera el script SQL para actualizar
+          la tabla <code>pallet_tags</code> en SQL Server local de la app C#.
+        </p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-secondary" onclick="sincronizarPalletTags()">🔄 Sincronizar ahora</button>
+          <span class="sync-note" id="pt-sync-status"></span>
+        </div>
+        <div id="pt-sync-result" style="margin-top:12px"></div>
+        <div id="card-sql-export" style="display:none;margin-top:16px;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--navy);">
+            📋 Script SQL para SQL Server local (ejecutar en la PC lectora)
+          </div>
+          <p class="sync-note" style="margin-bottom:8px;">
+            <code>sqlcmd -S .\SQLEXPRESS -E -d rfid_db</code> → pegar este script
+          </p>
+          <textarea id="pt-sql-script" readonly></textarea>
+          <button class="btn btn-sm btn-outline" style="margin-top:8px" onclick="copiarScriptPT()">📋 Copiar script</button>
+        </div>
+      </div>
+
+      <!-- Listado de pallet tags del servidor -->
+      <div class="card">
+        <div class="card-title">
+          📋 Pallet Tags en Servidor
+          <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="cargarPalletTags()">↺ Actualizar</button>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+          <input id="pt-filtro" placeholder="Filtrar por EPC o descripción..."
+                 style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid var(--border);
+                        border-radius:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;"
+                 oninput="filtrarPalletTags()"/>
+          <span class="sync-note" id="pt-count"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>EPC</th><th>TID</th><th>Descripción</th><th>Estado</th><th>Registrado</th><th>Acción</th></tr>
+            </thead>
+            <tbody id="lista-pallet-tags">
+              <tr><td colspan="6" class="no-data">Cargando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /tab-pallet-tags -->
+
+    <!-- ══════════════════════════════════════════════════
+         TAB: SESIÓN DE PALLET — Sprint 9
+         Gestión en tiempo real del pallet activo por portal
+    ═══════════════════════════════════════════════════ -->
+    <div class="tab-pane" id="tab-sesion">
+
+      <!-- Configuración del portal -->
+      <div class="card">
+        <div class="card-title">🔧 Configurar Portal de Lectura</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>ID del Portal (moduloId del lector)*</label>
+            <input id="session-portal-id" placeholder="28070074" maxlength="64"
+                   style="font-family:'IBM Plex Mono',monospace;"/>
+          </div>
+          <div class="form-group">
+            <label>Traslado Activo*</label>
+            <select id="session-transfer-select">
+              <option value="">— Cargando traslados... —</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+          <button class="btn btn-primary" onclick="abrirSessionPortal()">🚀 Iniciar Sesión</button>
+          <button class="btn btn-outline" onclick="cargarTrasladosSession()">↺ Actualizar traslados</button>
+          <button class="btn btn-danger" onclick="cerrarPalletActivo()"
+                  style="margin-left:auto">⏹ Cerrar Pallet Activo</button>
+        </div>
+        <div id="msg-session" style="margin-top:12px"></div>
+      </div>
+
+      <!-- Panel pallet activo + LPNs en tiempo real -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">
+            📦 Pallet Activo
+            <span class="rt-dot" id="ws-dot3" style="margin-left:6px"></span>
+          </div>
+          <div id="session-pallet-panel">
+            <div class="session-empty">
+              <div style="font-size:2rem;margin-bottom:8px">📦</div>
+              <div style="font-weight:600;margin-bottom:4px">Sin pallet activo</div>
+              <div style="color:var(--muted);font-size:13px">
+                Inicia una sesión y lee un pallet con el lector RFID
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feed de sesión en tiempo real -->
+        <div class="card">
+          <div class="card-title">
+            📡 Feed de Sesión
+            <span style="font-size:11px;color:var(--muted);margin-left:8px">
+              eventos en tiempo real
+            </span>
+          </div>
+          <div class="ws-terminal" id="session-events" style="height:320px">
+            Esperando lecturas RFID...
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /tab-sesion -->
+
+  </div><!-- /content -->
+</div><!-- /app -->
+
+<script src="js/rfid.js"></script>
+</body>
+</html>

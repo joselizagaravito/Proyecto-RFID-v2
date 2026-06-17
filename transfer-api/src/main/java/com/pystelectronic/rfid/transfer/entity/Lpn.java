@@ -21,7 +21,7 @@ public class Lpn {
     @Column(name = "lpn_code", nullable = false, unique = true, length = 14)
     private String lpnCode;
 
-    @Column(name = "epc", unique = true, length = 24)
+    @Column(name = "epc", unique = true, length = 36)
     private String epc;
 
     @ManyToOne(fetch = FetchType.LAZY)

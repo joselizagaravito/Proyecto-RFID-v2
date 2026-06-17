@@ -22,6 +22,9 @@ public class Pallet {
     @Column(name = "pallet_code", nullable = false, unique = true, length = 14)
     private String palletCode;
 
+    @Column(name = "epc", unique = true, length = 36)
+    private String epc;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "transfer_id", nullable = false)
     private Transfer transfer;

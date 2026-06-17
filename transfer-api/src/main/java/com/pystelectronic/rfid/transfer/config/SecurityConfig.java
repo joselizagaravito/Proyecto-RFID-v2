@@ -46,6 +46,19 @@ public class SecurityConfig {
             .csrf(c -> c.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                // ── Sprint 9: Sesión de pallet ──
+                // Endpoint interno (service-to-service) — NO expuesto vía Nginx
+                .requestMatchers(HttpMethod.POST, "/api/v1/internal/portals/*/session/read")
+                    .permitAll()
+                // Endpoints de operador (portal web) — requieren rol
+                .requestMatchers(HttpMethod.POST, "/api/v1/portals/*/session/open")
+                    .hasAnyRole("ADMIN", "OPERATOR")
+                .requestMatchers(HttpMethod.POST, "/api/v1/portals/*/session/read")
+                    .hasAnyRole("ADMIN", "OPERATOR", "DEVICE")
+                .requestMatchers(HttpMethod.POST, "/api/v1/portals/*/session/close-pallet")
+                    .hasAnyRole("ADMIN", "OPERATOR")
+                .requestMatchers(HttpMethod.GET, "/api/v1/portals/*/session")
+                    .hasAnyRole("ADMIN", "OPERATOR", "READER", "DEVICE")
                 .requestMatchers("/api/v1/audit-logs/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/v1/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/v1/**").hasRole("ADMIN")

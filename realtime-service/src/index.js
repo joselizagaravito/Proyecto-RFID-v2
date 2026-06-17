@@ -4,7 +4,7 @@
 import http from 'http';
 import express from 'express';
 import { config } from './config.js';
-import { initSocketServer, emitFromKafkaMessage, stopSocketServer } from './socket/socketServer.js';
+import { initSocketServer, emitFromKafkaMessage, emitFromSessionMessage, stopSocketServer } from './socket/socketServer.js';
 import { startKafkaConsumer, stopKafkaConsumer } from './kafka/kafkaConsumer.js';
 import { getRedisClient } from './redis/redisClient.js';
 import healthRouter from './health/healthRouter.js';
@@ -39,7 +39,7 @@ async function main() {
   });
 
   // 6. Iniciar consumidor Kafka — callback conecta mensajes con Socket.IO
-  await startKafkaConsumer(emitFromKafkaMessage);
+  await startKafkaConsumer(emitFromKafkaMessage, emitFromSessionMessage);
 
   console.info('=== realtime-service listo ===');
 }

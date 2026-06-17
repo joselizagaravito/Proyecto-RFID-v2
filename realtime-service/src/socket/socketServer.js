@@ -151,6 +151,41 @@ export async function emitFromKafkaMessage(classified) {
   }
 }
 
+
+/**
+ * Emite eventos WebSocket para mensajes de sesion de pallet (rfid.session).
+ * Sprint 9 · Pystelectronic
+ */
+export function emitFromSessionMessage(msg) {
+  if (!io) return;
+  const rfid = io.of(config.socket.namespace);
+  const rt = msg.resultType || '';
+  if (rt === 'PALLET_OPENED' || rt === 'PALLET_REUSED') {
+    rfid.emit('pallet:opened', {
+      resultType: rt, epc: msg.epc, palletId: msg.palletId,
+      palletCode: msg.palletCode, transferId: msg.transferId,
+      portalId: msg.portalId, lpnCount: msg.palletLpnCount || 0,
+      timestamp: new Date().toISOString(),
+    });
+    console.debug(`[Socket.IO] pallet:opened | portal=${msg.portalId} | pallet=${msg.palletCode}`);
+  } else if (rt === 'LPN_ADDED' || rt === 'LPN_REUSED') {
+    rfid.emit('lpn:added', {
+      resultType: rt, epc: msg.epc, lpnId: msg.lpnId,
+      lpnCode: msg.lpnCode, palletId: msg.palletId,
+      palletCode: msg.palletCode, transferId: msg.transferId,
+      portalId: msg.portalId, lpnCount: msg.palletLpnCount || 0,
+      timestamp: new Date().toISOString(),
+    });
+    console.debug(`[Socket.IO] lpn:added | portal=${msg.portalId} | lpn=${msg.lpnCode}`);
+  } else if (rt === 'LPN_REJECTED') {
+    rfid.emit('lpn:rejected', {
+      resultType: rt, epc: msg.epc, portalId: msg.portalId,
+      message: msg.message, timestamp: new Date().toISOString(),
+    });
+    console.warn(`[Socket.IO] lpn:rejected | portal=${msg.portalId} | epc=${msg.epc}`);
+  }
+}
+
 /**
  * Detiene el polling periódico (usado en graceful shutdown).
  */

@@ -8,6 +8,7 @@ export const config = {
     groupId: 'realtime-service-group',
     topic: {
       validated: 'rfid.validated',
+      session:   'rfid.session',
     },
     // Reintentos con backoff exponencial para reconexión robusta
     retry: {

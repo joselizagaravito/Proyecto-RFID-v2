@@ -23,4 +23,10 @@ public interface PalletRepository extends JpaRepository<Pallet, UUID> {
         WHERE p.id = :id
         """)
     Optional<Pallet> findByIdWithContents(@Param("id") UUID id);
+
+    java.util.Optional<Pallet> findByEpc(String epc);
+
+    @Query("SELECT p FROM Pallet p WHERE p.epc = :epc AND p.transfer.id = :transferId")
+    java.util.Optional<Pallet> findByEpcAndTransferId(
+            @Param("epc") String epc, @Param("transferId") UUID transferId);
 }

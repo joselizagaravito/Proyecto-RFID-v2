@@ -2,9 +2,8 @@ version: "3.9"
 
 # ═══════════════════════════════════════════════════════════════
 #  Sistema RFID de Traslados — Docker Compose
-#  Sprint 9: healthchecks corregidos (curl→wget, keycloak /dev/tcp)
-#            read-tag-service y validation-service sin dependencia
-#            bloqueante de keycloak
+#  Sprint 6: Keycloak ACTIVO + audit-service + RBAC completo
+#  FIX: Cookie not found — KC_PROXY + headers Nginx corregidos
 #
 #  IMPORTANTE — arquitectura del servidor:
 #  - Nginx NATIVO (no en Docker) sirve en puerto 80
@@ -12,7 +11,7 @@ version: "3.9"
 #  - Nginx redirige /api  → localhost:8080 (transfer-api)
 #  - Los contenedores exponen puertos al host para que Nginx los alcance
 #
-#  Pystelectronic · Ing. José Hernán Liza Garavito · Sprint 9
+#  Pystelectronic · Ing. José Hernán Liza Garavito · Sprint 6
 # ═══════════════════════════════════════════════════════════════
 
 networks:
@@ -118,8 +117,10 @@ services:
   #   KC_PROXY_HEADERS       → acepta X-Forwarded-* de Nginx
   #   KC_HOSTNAME_STRICT_HTTPS=false → HTTP sin SSL no rompe las cookies
   #
-  # HEALTHCHECK: Keycloak 25 no tiene curl ni wget — usa /dev/tcp
-  # El puerto 9000 expone el management endpoint sin KC_HTTP_RELATIVE_PATH
+  # El Nginx nativo DEBE tener estos headers (ver comentario al final):
+  #   proxy_set_header X-Forwarded-Proto $scheme;
+  #   proxy_set_header X-Forwarded-Host  $host;
+  #   proxy_set_header X-Forwarded-Port  $server_port;
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
     container_name: rfid-keycloak
@@ -157,7 +158,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "/opt/keycloak/bin/kc.sh show-config > /dev/null 2>&1 && exit 0 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/auth/health/ready || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 10
@@ -195,16 +196,13 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
       start_period: 60s
 
   # ── Read Tag Service :8082 ────────────────────────────────────
-  # SPRINT 9 FIX: eliminada dependencia bloqueante de keycloak
-  # Este servicio acepta POST sin JWT (permitAll en SecurityConfig)
-  # y puede arrancar sin esperar que Keycloak esté healthy
   read-tag-service:
     build:
       context: .
@@ -217,9 +215,10 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE:  prod
-      DB_URL:                  jdbc:postgresql://postgres:5432/rfid_transfers
       DB_HOST:                 postgres
       DB_PORT:                 5432
       DB_NAME:                 rfid_transfers
@@ -231,15 +230,13 @@ services:
     ports:
       - "8082:8082"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8082/actuator/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
       start_period: 60s
 
   # ── Validation Service :8083 ──────────────────────────────────
-  # SPRINT 9 FIX: eliminada dependencia bloqueante de keycloak
-  # Consume Kafka rfid.raw-reads — no necesita Keycloak para arrancar
   validation-service:
     build:
       context: .
@@ -254,9 +251,10 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE:  prod
-      DB_URL:                  jdbc:postgresql://postgres:5432/rfid_transfers
       DB_HOST:                 postgres
       DB_PORT:                 5432
       DB_NAME:                 rfid_transfers
@@ -270,7 +268,7 @@ services:
     ports:
       - "8083:8083"
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f app.jar || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/actuator/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -300,7 +298,7 @@ services:
     ports:
       - "127.0.0.1:8084:8084"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8084/actuator/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -327,7 +325,7 @@ services:
     ports:
       - "3001:3001"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5

@@ -1,0 +1,782 @@
+version: "3.9"
+
+# ═══════════════════════════════════════════════════════════════
+#  Sistema RFID de Traslados — Docker Compose
+#  Sprint 9: healthchecks corregidos (curl→wget, keycloak /dev/tcp)
+#            read-tag-service y validation-service sin dependencia
+#            bloqueante de keycloak
+#
+#  IMPORTANTE — arquitectura del servidor:
+#  - Nginx NATIVO (no en Docker) sirve en puerto 80
+#  - Nginx redirige /auth → localhost:8180 (Keycloak)
+#  - Nginx redirige /api  → localhost:8080 (transfer-api)
+#  - Los contenedores exponen puertos al host para que Nginx los alcance
+#
+#  Pystelectronic · Ing. José Hernán Liza Garavito · Sprint 9
+# ═══════════════════════════════════════════════════════════════
+
+networks:
+  rfid-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  keycloak_data:
+
+services:
+
+  # ── PostgreSQL 16 ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: rfid-postgres
+    restart: unless-stopped
+    networks: [rfid-net]
+    environment:
+      POSTGRES_DB:       rfid_transfers
+      POSTGRES_USER:     rfid_app
+      POSTGRES_PASSWORD: rfid_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rfid_app -d rfid_transfers"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Redis 7 ───────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: rfid-redis
+    restart: unless-stopped
+    networks: [rfid-net]
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka Confluent 7.6 KRaft (sin ZooKeeper) ─────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: rfid-kafka
+    restart: unless-stopped
+    networks: [rfid-net]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+      CLUSTER_ID: "9KabTW_TTKWKWjUfXZpP7w"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "127.0.0.1:9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Kafka UI :8090 ────────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: rfid-kafka-ui
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: rfid-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "8090:8080"
+
+  # ── Keycloak 25 ───────────────────────────────────────────────
+  # FIX "Cookie not found":
+  #   KC_PROXY=edge          → KC sabe que hay un proxy reverso delante
+  #   KC_PROXY_HEADERS       → acepta X-Forwarded-* de Nginx
+  #   KC_HOSTNAME_STRICT_HTTPS=false → HTTP sin SSL no rompe las cookies
+  #
+  # HEALTHCHECK: Keycloak 25 no tiene curl ni wget — usa /dev/tcp
+  # El puerto 9000 expone el management endpoint sin KC_HTTP_RELATIVE_PATH
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: rfid-keycloak
+    restart: unless-stopped
+    networks: [rfid-net]
+    environment:
+      KEYCLOAK_ADMIN:               admin
+      KEYCLOAK_ADMIN_PASSWORD:      admin123
+      KC_DB:                        postgres
+      KC_DB_URL:                    jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME:               rfid_app
+      KC_DB_PASSWORD:               rfid_pass
+      # ── Hostname / path ──────────────────────────────────────
+      KC_HOSTNAME:                  38.253.180.55
+      KC_HOSTNAME_PORT:             80
+      KC_HOSTNAME_PATH:             /auth
+      KC_HTTP_RELATIVE_PATH:        /auth
+      KC_HTTP_ENABLED:              "true"
+      # ── FIX COOKIE: proxy reverso ────────────────────────────
+      KC_PROXY:                     edge
+      KC_PROXY_HEADERS:             xforwarded
+      KC_HOSTNAME_STRICT:           "false"
+      KC_HOSTNAME_STRICT_HTTPS:     "false"
+      KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+      # ── Caché deshabilitada (dev) ─────────────────────────────
+      KC_THEME_CACHE_THEMES:        "false"
+      KC_THEME_CACHE_TEMPLATES:     "false"
+    command: ["start-dev", "--import-realm"]
+    volumes:
+      - ./keycloak/realm-rfid.json:/opt/keycloak/data/import/realm-rfid.json:ro
+      - ./keycloak-themes:/opt/keycloak/themes:ro
+    ports:
+      - "127.0.0.1:8180:8080"
+      - "127.0.0.1:9000:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && cat <&3 | grep -q 'UP' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  # ── Transfer API :8080 ────────────────────────────────────────
+  transfer-api:
+    build:
+      context: .
+      dockerfile: transfer-api/Dockerfile
+    container_name: rfid-transfer-api
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE:  prod
+      DB_HOST:                 postgres
+      DB_PORT:                 5432
+      DB_NAME:                 rfid_transfers
+      DB_USER:                 rfid_app
+      DB_PASS:                 rfid_pass
+      REDIS_HOST:              redis
+      REDIS_PORT:              6379
+      KAFKA_BOOTSTRAP:         kafka:9092
+      JWT_ISSUER_URI:          http://keycloak:8080/auth/realms/rfid-realm
+      JWT_JWK_SET_URI:         http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Read Tag Service :8082 ────────────────────────────────────
+  # SPRINT 9 FIX: eliminada dependencia bloqueante de keycloak
+  # Este servicio acepta POST sin JWT (permitAll en SecurityConfig)
+  # y puede arrancar sin esperar que Keycloak esté healthy
+  read-tag-service:
+    build:
+      context: .
+      dockerfile: read-tag-service/Dockerfile
+    container_name: rfid-read-tag
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE:  prod
+      DB_HOST:                 postgres
+      DB_PORT:                 5432
+      DB_NAME:                 rfid_transfers
+      DB_USER:                 rfid_app
+      DB_PASS:                 rfid_pass
+      KAFKA_BOOTSTRAP:         kafka:9092
+      JWT_ISSUER_URI:          http://keycloak:8080/auth/realms/rfid-realm
+      JWT_JWK_SET_URI:         http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Validation Service :8083 ──────────────────────────────────
+  # SPRINT 9 FIX: eliminada dependencia bloqueante de keycloak
+  # Consume Kafka rfid.raw-reads — no necesita Keycloak para arrancar
+  validation-service:
+    build:
+      context: .
+      dockerfile: validation-service/Dockerfile
+    container_name: rfid-validation
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE:  prod
+      DB_HOST:                 postgres
+      DB_PORT:                 5432
+      DB_NAME:                 rfid_transfers
+      DB_USER:                 rfid_app
+      DB_PASS:                 rfid_pass
+      REDIS_HOST:              redis
+      REDIS_PORT:              6379
+      KAFKA_BOOTSTRAP:         kafka:9092
+      JWT_ISSUER_URI:          http://keycloak:8080/auth/realms/rfid-realm
+      JWT_JWK_SET_URI:         http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Audit Service :8084 ───────────────────────────────────────
+  audit-service:
+    build:
+      context: .
+      dockerfile: audit-service/Dockerfile
+    container_name: rfid-audit
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE:  prod
+      DB_HOST:                 postgres
+      DB_PORT:                 5432
+      DB_NAME:                 rfid_transfers
+      DB_USER:                 rfid_app
+      DB_PASS:                 rfid_pass
+      KAFKA_BOOTSTRAP:         kafka:9092
+    ports:
+      - "127.0.0.1:8084:8084"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Realtime Service :3001 ────────────────────────────────────
+  realtime-service:
+    build:
+      context: ./realtime-service
+      dockerfile: Dockerfile
+    container_name: rfid-realtime
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS:  kafka:9092
+      REDIS_HOST:     redis
+      REDIS_PORT:     6379
+      PORT:           3001
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Alert Service :3002 ───────────────────────────────────────
+  alert-service:
+    build:
+      context: ./alert-service
+      dockerfile: Dockerfile
+    container_name: rfid-alert
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS:       kafka:9092
+      DB_HOST:             postgres
+      DB_PORT:             5432
+      DB_NAME:             rfid_transfers
+      DB_USER:             rfid_app
+      DB_PASS:             rfid_pass
+      WEBHOOK_URL:         http://webhook-mock:3003/webhook
+      WEBHOOK_HMAC_SECRET: rfid-hmac-secret-2026
+      WEBHOOK_TIMEOUT_MS:  5000
+      WEBHOOK_MAX_RETRIES: 3
+      PORT:                3002
+    ports:
+      - "127.0.0.1:3002:3002"
+
+  # ── Webhook Mock :3003 (testing) ──────────────────────────────
+  webhook-mock:
+    build:
+      context: ./webhook-mock
+      dockerfile: Dockerfile
+    container_name: rfid-webhook-mock
+    restart: unless-stopped
+    networks: [rfid-net]
+    ports:
+      - "127.0.0.1:3003:3003"
+
+# ═══════════════════════════════════════════════════════════════
+#  NGINX REQUERIDO — bloque /auth (aplicar en el host nativo)
+#
+#  location /auth {
+#      proxy_pass              http://127.0.0.1:8180;
+#      proxy_set_header        Host              $host;
+#      proxy_set_header        X-Real-IP         $remote_addr;
+#      proxy_set_header        X-Forwarded-For   $proxy_add_x_forwarded_for;
+#      proxy_set_header        X-Forwarded-Proto $scheme;
+#      proxy_set_header        X-Forwarded-Host  $host;
+#      proxy_set_header        X-Forwarded-Port  $server_port;
+#      proxy_buffer_size       128k;
+#      proxy_buffers           4 256k;
+#      proxy_busy_buffers_size 256k;
+#      proxy_cookie_path       / "/; SameSite=None; Secure=false";
+#      proxy_pass_header       Set-Cookie;
+#  }
+# ═══════════════════════════════════════════════════════════════
+version: "3.9"
+
+# ═══════════════════════════════════════════════════════════════
+#  Sistema RFID de Traslados — Docker Compose
+#  Sprint 9: healthchecks corregidos (curl→wget, keycloak /dev/tcp)
+#            read-tag-service y validation-service sin dependencia
+#            bloqueante de keycloak
+#
+#  IMPORTANTE — arquitectura del servidor:
+#  - Nginx NATIVO (no en Docker) sirve en puerto 80
+#  - Nginx redirige /auth → localhost:8180 (Keycloak)
+#  - Nginx redirige /api  → localhost:8080 (transfer-api)
+#  - Los contenedores exponen puertos al host para que Nginx los alcance
+#
+#  Pystelectronic · Ing. José Hernán Liza Garavito · Sprint 9
+# ═══════════════════════════════════════════════════════════════
+
+networks:
+  rfid-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  keycloak_data:
+
+services:
+
+  # ── PostgreSQL 16 ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: rfid-postgres
+    restart: unless-stopped
+    networks: [rfid-net]
+    environment:
+      POSTGRES_DB:       rfid_transfers
+      POSTGRES_USER:     rfid_app
+      POSTGRES_PASSWORD: rfid_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rfid_app -d rfid_transfers"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Redis 7 ───────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: rfid-redis
+    restart: unless-stopped
+    networks: [rfid-net]
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka Confluent 7.6 KRaft (sin ZooKeeper) ─────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: rfid-kafka
+    restart: unless-stopped
+    networks: [rfid-net]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+      CLUSTER_ID: "9KabTW_TTKWKWjUfXZpP7w"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "127.0.0.1:9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Kafka UI :8090 ────────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: rfid-kafka-ui
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: rfid-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "8090:8080"
+
+  # ── Keycloak 25 ───────────────────────────────────────────────
+  # FIX "Cookie not found":
+  #   KC_PROXY=edge          → KC sabe que hay un proxy reverso delante
+  #   KC_PROXY_HEADERS       → acepta X-Forwarded-* de Nginx
+  #   KC_HOSTNAME_STRICT_HTTPS=false → HTTP sin SSL no rompe las cookies
+  #
+  # HEALTHCHECK: Keycloak 25 no tiene curl ni wget — usa /dev/tcp
+  # El puerto 9000 expone el management endpoint sin KC_HTTP_RELATIVE_PATH
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: rfid-keycloak
+    restart: unless-stopped
+    networks: [rfid-net]
+    environment:
+      KEYCLOAK_ADMIN:               admin
+      KEYCLOAK_ADMIN_PASSWORD:      admin123
+      KC_DB:                        postgres
+      KC_DB_URL:                    jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME:               rfid_app
+      KC_DB_PASSWORD:               rfid_pass
+      # ── Hostname / path ──────────────────────────────────────
+      KC_HOSTNAME:                  38.253.180.55
+      KC_HOSTNAME_PORT:             80
+      KC_HOSTNAME_PATH:             /auth
+      KC_HTTP_RELATIVE_PATH:        /auth
+      KC_HTTP_ENABLED:              "true"
+      # ── FIX COOKIE: proxy reverso ────────────────────────────
+      KC_PROXY:                     edge
+      KC_PROXY_HEADERS:             xforwarded
+      KC_HOSTNAME_STRICT:           "false"
+      KC_HOSTNAME_STRICT_HTTPS:     "false"
+      KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+      # ── Caché deshabilitada (dev) ─────────────────────────────
+      KC_THEME_CACHE_THEMES:        "false"
+      KC_THEME_CACHE_TEMPLATES:     "false"
+    command: ["start-dev", "--import-realm"]
+    volumes:
+      - ./keycloak/realm-rfid.json:/opt/keycloak/data/import/realm-rfid.json:ro
+      - ./keycloak-themes:/opt/keycloak/themes:ro
+    ports:
+      - "127.0.0.1:8180:8080"
+      - "127.0.0.1:9000:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && cat <&3 | grep -q 'UP' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  # ── Transfer API :8080 ────────────────────────────────────────
+  transfer-api:
+    build:
+      context: .
+      dockerfile: transfer-api/Dockerfile
+    container_name: rfid-transfer-api
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE:  prod
+      DB_HOST:                 postgres
+      DB_PORT:                 5432
+      DB_NAME:                 rfid_transfers
+      DB_USER:                 rfid_app
+      DB_PASS:                 rfid_pass
+      REDIS_HOST:              redis
+      REDIS_PORT:              6379
+      KAFKA_BOOTSTRAP:         kafka:9092
+      JWT_ISSUER_URI:          http://keycloak:8080/auth/realms/rfid-realm
+      JWT_JWK_SET_URI:         http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Read Tag Service :8082 ────────────────────────────────────
+  # SPRINT 9 FIX: eliminada dependencia bloqueante de keycloak
+  # Este servicio acepta POST sin JWT (permitAll en SecurityConfig)
+  # y puede arrancar sin esperar que Keycloak esté healthy
+  read-tag-service:
+    build:
+      context: .
+      dockerfile: read-tag-service/Dockerfile
+    container_name: rfid-read-tag
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE:  prod
+      DB_HOST:                 postgres
+      DB_PORT:                 5432
+      DB_NAME:                 rfid_transfers
+      DB_USER:                 rfid_app
+      DB_PASS:                 rfid_pass
+      KAFKA_BOOTSTRAP:         kafka:9092
+      JWT_ISSUER_URI:          http://keycloak:8080/auth/realms/rfid-realm
+      JWT_JWK_SET_URI:         http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Validation Service :8083 ──────────────────────────────────
+  # SPRINT 9 FIX: eliminada dependencia bloqueante de keycloak
+  # Consume Kafka rfid.raw-reads — no necesita Keycloak para arrancar
+  validation-service:
+    build:
+      context: .
+      dockerfile: validation-service/Dockerfile
+    container_name: rfid-validation
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE:  prod
+      DB_HOST:                 postgres
+      DB_PORT:                 5432
+      DB_NAME:                 rfid_transfers
+      DB_USER:                 rfid_app
+      DB_PASS:                 rfid_pass
+      REDIS_HOST:              redis
+      REDIS_PORT:              6379
+      KAFKA_BOOTSTRAP:         kafka:9092
+      JWT_ISSUER_URI:          http://keycloak:8080/auth/realms/rfid-realm
+      JWT_JWK_SET_URI:         http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Audit Service :8084 ───────────────────────────────────────
+  audit-service:
+    build:
+      context: .
+      dockerfile: audit-service/Dockerfile
+    container_name: rfid-audit
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE:  prod
+      DB_HOST:                 postgres
+      DB_PORT:                 5432
+      DB_NAME:                 rfid_transfers
+      DB_USER:                 rfid_app
+      DB_PASS:                 rfid_pass
+      KAFKA_BOOTSTRAP:         kafka:9092
+    ports:
+      - "127.0.0.1:8084:8084"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Realtime Service :3001 ────────────────────────────────────
+  realtime-service:
+    build:
+      context: ./realtime-service
+      dockerfile: Dockerfile
+    container_name: rfid-realtime
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS:  kafka:9092
+      REDIS_HOST:     redis
+      REDIS_PORT:     6379
+      PORT:           3001
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Alert Service :3002 ───────────────────────────────────────
+  alert-service:
+    build:
+      context: ./alert-service
+      dockerfile: Dockerfile
+    container_name: rfid-alert
+    restart: unless-stopped
+    networks: [rfid-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS:       kafka:9092
+      DB_HOST:             postgres
+      DB_PORT:             5432
+      DB_NAME:             rfid_transfers
+      DB_USER:             rfid_app
+      DB_PASS:             rfid_pass
+      WEBHOOK_URL:         http://webhook-mock:3003/webhook
+      WEBHOOK_HMAC_SECRET: rfid-hmac-secret-2026
+      WEBHOOK_TIMEOUT_MS:  5000
+      WEBHOOK_MAX_RETRIES: 3
+      PORT:                3002
+    ports:
+      - "127.0.0.1:3002:3002"
+
+  # ── Webhook Mock :3003 (testing) ──────────────────────────────
+  webhook-mock:
+    build:
+      context: ./webhook-mock
+      dockerfile: Dockerfile
+    container_name: rfid-webhook-mock
+    restart: unless-stopped
+    networks: [rfid-net]
+    ports:
+      - "127.0.0.1:3003:3003"
+
+# ═══════════════════════════════════════════════════════════════
+#  NGINX REQUERIDO — bloque /auth (aplicar en el host nativo)
+#
+#  location /auth {
+#      proxy_pass              http://127.0.0.1:8180;
+#      proxy_set_header        Host              $host;
+#      proxy_set_header        X-Real-IP         $remote_addr;
+#      proxy_set_header        X-Forwarded-For   $proxy_add_x_forwarded_for;
+#      proxy_set_header        X-Forwarded-Proto $scheme;
+#      proxy_set_header        X-Forwarded-Host  $host;
+#      proxy_set_header        X-Forwarded-Port  $server_port;
+#      proxy_buffer_size       128k;
+#      proxy_buffers           4 256k;
+#      proxy_busy_buffers_size 256k;
+#      proxy_cookie_path       / "/; SameSite=None; Secure=false";
+#      proxy_pass_header       Set-Cookie;
+#  }
+# ═══════════════════════════════════════════════════════════════

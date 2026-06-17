@@ -4,6 +4,11 @@ spring:
 
   flyway:
     enabled: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://keycloak:8080/auth/realms/rfid-realm/protocol/openid-connect/certs}
 
   # ── Kafka ──────────────────────────────────────────────────
   kafka:

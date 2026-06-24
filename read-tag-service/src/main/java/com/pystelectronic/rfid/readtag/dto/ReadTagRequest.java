@@ -26,7 +26,7 @@ import java.time.Instant;
 public class ReadTagRequest {
 
     @NotBlank(message = "El campo epc es obligatorio")
-    @Pattern(regexp = "^[0-9A-F]{24}$",
+    @Pattern(regexp = "^[0-9A-Za-z]{1,36}$",
              message = "EPC debe ser hexadecimal de 24 caracteres mayúsculos")
     private String epc;
 

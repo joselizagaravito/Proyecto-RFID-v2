@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import org.springframework.scheduling.annotation.Async;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,6 +27,7 @@ public class ReadTagService {
     private final ReadTagRepository repository;
     private final ReadTagMapper mapper;
     private final ReadTagPersistenceService persistenceService;
+    private final PalletSessionClient palletSessionClient;
 
     @Transactional(readOnly = true)
     public Page<ReadTagResponse> findAll(String epc, String moduloId,
@@ -47,6 +49,8 @@ public class ReadTagService {
         String corrId = resolveCorrelationId(correlationId);
         RawReadMessage message = mapper.toRawReadMessage(request);
         ReadTag saved = persistenceService.saveOrUpdate(message, corrId);
+        // Notificar sesión de pallet de forma asíncrona (no bloquea la respuesta al C#)
+        palletSessionClient.notifySession(request.getModuloId(), request.getEpc());
         return mapper.toResponse(saved);
     }
 

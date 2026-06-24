@@ -103,16 +103,23 @@ public class PalletSessionService {
                 .orElseThrow(() -> new TransferNotFoundException(
                         session.getTransferId().toString()));
 
-        // Dedup: ¿ya existe un pallet con este EPC en este traslado?
-        Optional<Pallet> existente = palletRepository
-                .findByEpcAndTransferId(epc, transfer.getId());
+        // Dedup global: buscar pallet por EPC en cualquier traslado
+        Optional<Pallet> existente = palletRepository.findByEpc(epc);
 
         Pallet pallet;
         boolean reused;
         if (existente.isPresent()) {
             pallet = existente.get();
+            // Si el pallet pertenece a otro traslado, reasignarlo al actual
+            if (!pallet.getTransfer().getId().equals(transfer.getId())) {
+                pallet.setTransfer(transfer);
+                pallet = palletRepository.save(pallet);
+                log.info("Pallet reasignado epc={} code={} → transfer={}",
+                        epc, pallet.getPalletCode(), transfer.getTransferCode());
+            } else {
+                log.info("Pallet reutilizado epc={} code={}", epc, pallet.getPalletCode());
+            }
             reused = true;
-            log.info("Pallet reutilizado epc={} code={}", epc, pallet.getPalletCode());
         } else {
             String palletCode = codeGenerator.nextPalletCode();
             pallet = Pallet.builder()

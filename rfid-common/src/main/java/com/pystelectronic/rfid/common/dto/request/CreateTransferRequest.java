@@ -17,12 +17,12 @@ public class CreateTransferRequest {
 
     @NotBlank(message = "El código de origen es requerido")
     @Size(min = 1, max = 10, message = "El código de origen debe tener entre 1 y 10 caracteres")
-    @Pattern(regexp = "^[A-Za-z0-9]{1,10}$", message = "VAL-001: Máx. 10 caracteres alfanuméricos")
+    @Pattern(regexp = "^[A-Za-z0-9\\-_]{1,10}$", message = "VAL-001: Máx. 10 caracteres alfanuméricos o guiones")
     private String originCode;
 
     @NotBlank(message = "El código de destino es requerido")
     @Size(min = 1, max = 10, message = "El código de destino debe tener entre 1 y 10 caracteres")
-    @Pattern(regexp = "^[A-Za-z0-9]{1,10}$", message = "VAL-001: Máx. 10 caracteres alfanuméricos")
+    @Pattern(regexp = "^[A-Za-z0-9\\-_]{1,10}$", message = "VAL-001: Máx. 10 caracteres alfanuméricos o guiones")
     private String destinationCode;
 
     @NotNull(message = "La fecha programada es requerida")

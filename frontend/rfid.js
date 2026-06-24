@@ -1,6 +1,9 @@
 /* ══════════════════════════════════════════════════════════════
-   RFID Traslados v19 — Sprint 9
-   T4: CRUD pallet_tags · T5: Sync desde servidor
+   RFID Traslados v23 — Sprint 9 (Fix Dispatch DRAFT+PREPARED)
+   Fix 1: DRAFT→PREPARED ocurre al agregar pallet (automático en backend)
+   Fix 2: EPC maxlength 24→36 (JS override)
+   Fix 3: confirmarDespacho extrae lpnList+declaredTotalUnits del transfer
+          antes de enviar (DispatchTransferRequest @NotEmpty/@NotNull)
    Pystelectronic · Ing. José Hernán Liza Garavito
    ══════════════════════════════════════════════════════════════ */
 
@@ -199,6 +202,13 @@ function lanzarApp() {
   // Auto-refresh KPIs cada 30 segundos
   if (kpiIntervalId) clearInterval(kpiIntervalId);
   kpiIntervalId = setInterval(cargarKPIs, 30000);
+
+  // Fix v20: EPC ahora es 36 chars alfanumérico (Sprint 9) — corregir maxlength
+  const epcInputDesp = document.getElementById('dsp-epc');
+  if (epcInputDesp) {
+    epcInputDesp.maxLength   = 36;
+    epcInputDesp.placeholder = 'E200001D880C018010209CBA (24h) ó 36 chars alfanumérico';
+  }
 }
 
 function cerrarSesion() {
@@ -352,6 +362,17 @@ async function cargarKPIs() {
 
 function accionRapida(t) {
   const btns = [];
+  // DRAFT: la transición a PREPARED ocurre automáticamente al agregar el primer pallet
+  // (TransferServiceImpl.addPallet() línea 94: if DRAFT → setStatus(PREPARED))
+  if (t.status === 'DRAFT') {
+    btns.push(`<button class="btn btn-sm btn-secondary"
+      onclick="document.getElementById('p-tid').value='${t.transferId}';
+               document.getElementById('p-code').value='';
+               showTab('pallets')"
+      title="Agrega un pallet para que pase automáticamente a PREPARED">
+      📦 Agregar Pallet →</button>`);
+  }
+  // PREPARED: listo para despacho
   if (t.status === 'PREPARED') {
     btns.push(`<button class="btn btn-sm btn-gold"
       onclick="seleccionarDespacho('${t.transferId}','${t.transferCode}','${t.originCode}','${t.destinationCode}')">
@@ -372,6 +393,14 @@ function accionRapida(t) {
     📦 Pallets</button>`);
   return btns.join(' ');
 }
+
+/* ══════════════════════════════════════════════════════════════
+   NOTA v21: No existe endpoint /prepare en el backend.
+   La transición DRAFT → PREPARED es AUTOMÁTICA en TransferServiceImpl
+   cuando se agrega el primer pallet (addPallet(), línea 94).
+   El botón "📦 Agregar Pallet →" en accionRapida lleva directo
+   a la pestaña Pallets con el transferId pre-cargado.
+═══════════════════════════════════════════════════════════════ */
 
 function renderBarChart(labels, values, colors) {
   const svg    = document.getElementById('activity-svg');
@@ -483,6 +512,7 @@ function conectarWS() {
     socket.on('epc:anomaly', data => {
       const line = `⚠️ ALERTA ${data.anomalyType || data.alertType || ''} · EPC:${data.epcCode} Portal:${data.portalId}`;
       addWSLine(`[${ts()}] ${line}`, 'anomaly');
+      // El flash ya muestra el mensaje — no necesita EPC en la barra
       stBar.textContent = line;
       const cnt = document.getElementById('rt-alerts-count');
       cnt.textContent = (parseInt(cnt.textContent)||0) + 1;
@@ -568,11 +598,22 @@ async function cargarTrasladosDespacho() {
     return;
   }
   const data  = await res.json();
-  const items = (data.content || []).filter(t => t.status === 'PREPARED');
+  // Fix v23: el backend acepta PREPARED y DRAFT para dispatch
+  // TransferServiceImpl línea 183: acepta ambos estados
+  const items = (data.content || []).filter(t =>
+    t.status === 'PREPARED' || t.status === 'DRAFT'
+  );
 
   if (items.length === 0) {
     document.getElementById('dispatch-list').innerHTML =
-      msgEl('warn', '⚠️ No hay traslados en estado PREPARED. Primero crea y prepara un traslado en la pestaña Traslados.');
+      msgEl('warn',
+        '⚠️ No hay traslados disponibles para despacho.<br>' +
+        '<small style="line-height:1.7">' +
+        '📋 Flujo correcto:<br>' +
+        '1. Pestaña <b>Traslados</b> → crear traslado<br>' +
+        '2. Pestaña <b>Pallets</b> → agregar pallet al traslado<br>' +
+        '3. Volver a <b>Despacho</b> → el traslado aparecerá aquí' +
+        '</small>');
     return;
   }
 
@@ -678,21 +719,63 @@ async function confirmarDespacho() {
   if (!dispatchTransfer) return;
   const carrier = document.getElementById('dsp-carrier').value.trim();
   if (!carrier) {
-    document.getElementById('msg-dispatch').innerHTML = msgEl('error','Transportista es requerido');
+    document.getElementById('msg-dispatch').innerHTML = msgEl('error', 'Transportista es requerido');
     return;
   }
   const btn = document.getElementById('btn-dispatch-confirm');
-  btn.disabled = true; btn.textContent = 'Procesando...';
+  btn.disabled = true;
+  btn.textContent = 'Obteniendo LPNs...';
+
+  /* ── Fix v22: DispatchTransferRequest requiere lpnList (@NotEmpty)
+        y declaredTotalUnits (@NotNull @Min(1)).
+        Hacemos GET del transfer para extraerlos antes de despachar. ── */
+  const resT = await api(`${CONFIG.API}/transfers/${dispatchTransfer.id}`);
+  if (!resT || !resT.ok) {
+    btn.disabled = false; btn.textContent = '🚢 Confirmar Despacho';
+    document.getElementById('msg-dispatch').innerHTML =
+      msgEl('error', 'No se pudo obtener los LPNs del traslado para despachar');
+    return;
+  }
+  const transferData = await resT.json();
+
+  // Extraer lpnList y calcular declaredTotalUnits desde pallets.contents
+  const lpnList = [];
+  let declaredTotalUnits = 0;
+  (transferData.pallets || []).forEach(p => {
+    (p.contents || []).forEach(c => {
+      if (c.contentType === 'LPN' && c.lpnCode) {
+        lpnList.push(c.lpnCode);
+        declaredTotalUnits += (c.totalUnits || 1);
+      } else if (c.contentType === 'LOOSE_ITEM') {
+        declaredTotalUnits += (c.unitQuantity || c.totalUnits || 1);
+      }
+    });
+  });
+
+  if (lpnList.length === 0) {
+    btn.disabled = false; btn.textContent = '🚢 Confirmar Despacho';
+    document.getElementById('msg-dispatch').innerHTML =
+      msgEl('error',
+        'El traslado no tiene LPNs registrados.<br>' +
+        '<small>Ve a <b>Pallets</b> → agrega contenido al pallet antes de despachar.</small>');
+    return;
+  }
+
+  btn.textContent = 'Despachando...';
+
+  const _plate = document.getElementById('dsp-plate').value.trim() || undefined;
+  const _guide = document.getElementById('dsp-guide').value.trim() || undefined;
 
   const body = {
-    carrierId:   carrier,
-    guideNumber: document.getElementById('dsp-guide').value.trim() || undefined,
-    plate:       document.getElementById('dsp-plate').value.trim() || undefined,
-    remarks:     document.getElementById('dsp-remarks').value.trim() || undefined,
-    dispatchedBy: S.username || 'frontend-user'
+    dispatchDateTime:   new Date().toISOString(),
+    userId:             (S.username || 'frontend-user').substring(0, 40),
+    vehiclePlate:       _plate   ? _plate.substring(0, 20)  : undefined,
+    shippingNote:       _guide   ? _guide.substring(0, 30)  : undefined,
+    lpnList:            lpnList,
+    declaredTotalUnits: Math.max(declaredTotalUnits, lpnList.length)
   };
 
-  const res  = await api(`${CONFIG.API}/transfers/${dispatchTransfer.id}/dispatch`,
+  const res = await api(`${CONFIG.API}/transfers/${dispatchTransfer.id}/dispatch`,
     { method: 'POST', body: JSON.stringify(body) });
   btn.disabled = false; btn.textContent = '🚢 Confirmar Despacho';
   if (!res) return;
@@ -700,7 +783,8 @@ async function confirmarDespacho() {
 
   if (res.ok) {
     document.getElementById('msg-dispatch').innerHTML = msgEl('success',
-      `✅ Traslado <b>${dispatchTransfer.code}</b> despachado exitosamente. Estado: <b>${data.status}</b>`);
+      `✅ <b>${dispatchTransfer.code}</b> despachado — ` +
+      `<b>${lpnList.length}</b> LPN(s) · Estado: <b>${data.status}</b>`);
     dispatchTransfer = null;
     setTimeout(() => { irDespachoStep1(); cargarTrasladosDespacho(); cargarKPIs(); }, 3000);
   } else {
@@ -1308,6 +1392,11 @@ function copiarScriptPT() {
 ═══════════════════════════════════════════════════════════════ */
 
 function iniciarSessionPanel() {
+  // Pre-llenar el portal ID con el moduloId configurado en el sistema
+  const portalField = document.getElementById('session-portal-id');
+  if (portalField && !portalField.value) {
+    portalField.value = '28070074';
+  }
   renderSessionPanel();
   // Cargar traslados IN_TRANSIT para el selector
   cargarTrasladosSession();
@@ -1315,12 +1404,12 @@ function iniciarSessionPanel() {
 
 async function cargarTrasladosSession() {
   const sel = document.getElementById('session-transfer-select');
-  if (!sel) return;
+  if (!sel) { setTimeout(cargarTrasladosSession, 500); return; }
   const res = await api(`${CONFIG.API}/transfers?size=50&sort=createdAt,desc`);
   if (!res || !res.ok) return;
   const data = await res.json();
   const activos = (data.content || []).filter(t =>
-    t.status === 'IN_TRANSIT' || t.status === 'DISPATCHED' || t.status === 'PREPARED');
+    t.status === 'IN_TRANSIT' || t.status === 'DISPATCHED' || t.status === 'PREPARED' || t.status === 'DRAFT');
   sel.innerHTML = '<option value="">— Selecciona un traslado —</option>' +
     activos.map(t => `<option value="${t.transferId}">${t.transferCode} · ${t.originCode}→${t.destinationCode} [${t.status}]</option>`).join('');
 }
@@ -1337,10 +1426,12 @@ async function abrirSessionPortal() {
   if (!res) return;
   const data = await res.json();
   if (res.ok) {
-    sessionPalletActivo = null;
-    sessionLpns = [];
-    mostrarMsgSession('success', `✅ Sesión abierta en portal ${portalId}`);
-    renderSessionPanel();
+    // Solo resetear si no hay pallet activo — no interrumpir lecturas en curso
+    if (!sessionPalletActivo) {
+      sessionLpns = [];
+      renderSessionPanel();
+    }
+    mostrarMsgSession('success', `✅ Sesión iniciada: ${data.transferCode || transferId}`);
   } else {
     mostrarMsgSession('error', `Error ${res.status}: ${data.message || JSON.stringify(data)}`);
   }
@@ -1394,8 +1485,8 @@ function renderSessionPanel() {
           : sessionLpns.map(l => `
             <div class="session-lpn-item">
               <span class="session-lpn-badge">✓</span>
-              <span class="txt-mono" style="font-size:12px">${l.lpnCode}</span>
-              <span style="color:var(--muted);font-size:11px;margin-left:auto">${l.ts}</span>
+              <span class="txt-mono" style="font-size:12px;color:#e2e8f0">${l.lpnCode}</span>
+              <span style="color:#94a3b8;font-size:11px;margin-left:auto">${l.ts}</span>
             </div>`).join('')}
       </div>
     </div>`;

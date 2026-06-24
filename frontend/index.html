@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>RFID Traslados v19 — Pystelectronic</title>
+<title>RFID Traslados v23 — Pystelectronic</title>
 <link rel="stylesheet" href="css/rfid.css"/>
 <!-- CryptoJS: fallback SHA-256 para HTTP (sin crypto.subtle) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
@@ -57,7 +57,7 @@
   <!-- Topbar -->
   <div class="topbar">
     <div class="topbar-brand">
-      📦 RFID Traslados <small>v19</small>
+      📦 RFID Traslados <small>v23</small>
     </div>
     <div class="topbar-user">
       <span id="user-display">—</span>
@@ -411,8 +411,8 @@
       <div class="card" id="card-crear-traslado">
         <div class="card-title">➕ Crear Traslado</div>
         <div class="form-grid">
-          <div class="form-group"><label>Origen*</label><input id="t-origin" placeholder="A001" maxlength="10"/></div>
-          <div class="form-group"><label>Destino*</label><input id="t-dest" placeholder="B001" maxlength="10"/></div>
+          <div class="form-group"><label>Origen*</label><input id="t-origin" placeholder="ALMCTR" maxlength="10"/></div>
+          <div class="form-group"><label>Destino*</label><input id="t-dest" placeholder="TDANORTE" maxlength="10"/></div>
           <div class="form-group"><label>Prioridad*</label>
             <select id="t-priority">
               <option value="NORMAL">Normal</option><option value="HIGH">Alta</option>
@@ -693,6 +693,6 @@
   </div><!-- /content -->
 </div><!-- /app -->
 
-<script src="js/rfid.js"></script>
+<script src="js/rfid.js?v=23"></script>
 </body>
 </html>
